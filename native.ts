@@ -26,6 +26,20 @@ try {
     console.error("[InstanceSwitcher] failed to load saved CSP entries", e);
 }
 
+export async function fetchScript(_: IpcMainInvokeEvent, url: string) {
+    try {
+        const u = new URL(url);
+        if (u.protocol !== "https:") return { ok: false, error: "only https addresses are allowed" };
+        const res = await fetch(u.href, { cache: "no-store", redirect: "follow" });
+        if (!res.ok) return { ok: false, error: "server answered " + res.status };
+        const text = await res.text();
+        if (text.length > 5_000_000) return { ok: false, error: "script is too large" };
+        return { ok: true, text };
+    } catch (e) {
+        return { ok: false, error: String(e) };
+    }
+}
+
 export function allowGateways(_: IpcMainInvokeEvent, origins: string[]) {
     const added = apply(origins);
     if (added) {
