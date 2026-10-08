@@ -955,100 +955,226 @@ function openSwitcher() {
     ));
 }
 
+const card: React.CSSProperties = {
+    display: "flex",
+    flexDirection: "column",
+    gap: 14,
+    padding: 14,
+    borderRadius: 8,
+    background: C.row,
+    border: "1px solid " + C.border
+};
+
+function SettingsSection({ title, children }: { title: string; children: React.ReactNode; }) {
+    return (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ ...sectionLabel, marginTop: 0 }}>{title}</div>
+            <div style={card}>{children}</div>
+        </div>
+    );
+}
+
+function SettingsPanel() {
+    const store = settings.use();
+    const [advanced, setAdvanced] = React.useState(false);
+    const [hashOpen, setHashOpen] = React.useState(false);
+
+    const flag = (key: keyof typeof store, label: string, hint: string) => (
+        <Toggle label={label} hint={hint} checked={!!store[key]} onChange={v => { (store as any)[key] = v; }} />
+    );
+
+    return (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ ...card, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ display: "flex", flexDirection: "column" }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: C.header }}>Instances</span>
+                    <span style={{ fontSize: 12, color: C.muted }}>Add, edit and switch servers. Shortcut: Ctrl+Alt+I</span>
+                </span>
+                <Button onClick={() => openSwitcher()}>Open switcher</Button>
+            </div>
+
+            <SettingsSection title="On other servers">
+                {flag("spoofVerified", "Skip verification locks", "Report the account as verified so chat is not blocked")}
+                {flag("rewriteText", "Show the server's name instead of discord.com", "Settings, boost and invite screens")}
+                {flag("userTags", "Show OFFICIAL and AI tags", "Next to names in messages and the member list")}
+                {flag("showBadge", "Show a badge with the current server", "Click it to open the switcher")}
+            </SettingsSection>
+
+            <SettingsSection title="Messages and sound">
+                {flag("pollMessages", "Catch missed messages", "Checks the open channel for messages the live connection missed")}
+                {store.pollMessages && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, paddingLeft: 46 }}>
+                        <span style={{ fontSize: 12, color: C.muted }}>Check every</span>
+                        <div style={{ width: 70 }}>
+                            <TextInput
+                                type="number"
+                                value={String(store.pollSeconds)}
+                                onChange={(v: string) => { const n = Number(v); if (n >= 3) store.pollSeconds = Math.round(n); }}
+                            />
+                        </div>
+                        <span style={{ fontSize: 12, color: C.muted }}>seconds</span>
+                    </div>
+                )}
+                {flag("notifySound", "Extra ping for DMs and mentions", "Sounds different from real Discord")}
+            </SettingsSection>
+
+            <SettingsSection title="Encrypted DMs">
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: C.header }}>Encryption script address</span>
+                    <TextInput value={store.e2eeUrl} placeholder="https://" onChange={(v: string) => { store.e2eeUrl = v; }} />
+                    <span style={{ fontSize: 12, color: C.muted }}>
+                        Used by servers with the FossCORD/MeowCORD switch on. It runs inside your client, so only use a host you trust.
+                    </span>
+                </div>
+                <Disclosure label="Pin the script (optional)" open={hashOpen} onToggle={() => setHashOpen(!hashOpen)} />
+                {hashOpen && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        <TextInput value={store.e2eeHash} placeholder="SHA-256 in hex" onChange={(v: string) => { store.e2eeHash = v.trim(); }} />
+                        <span style={{ fontSize: 12, color: C.muted }}>If set, the script only runs when it matches exactly.</span>
+                    </div>
+                )}
+            </SettingsSection>
+
+            <Disclosure label="Advanced" open={advanced} onToggle={() => setAdvanced(!advanced)} />
+            {advanced && (
+                <SettingsSection title="Advanced">
+                    {flag("experimental", "Experimental features", "Turn off if the client refreshes or crashes by itself")}
+                    {store.experimental && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 14, paddingLeft: 46 }}>
+                            {flag("pollOtherChannels", "Check other channels", "Keeps unread badges accurate")}
+                            {flag("syncEdits", "Catch missed edits and deletes", "")}
+                            {flag("autoReconnect", "Reconnect when messages were missed", "At most once a minute")}
+                            {flag("notifyPrefix", "Server name in notification titles", "")}
+                        </div>
+                    )}
+                    {flag("spoofPhone", "Also report a phone number", "For the highest verification level")}
+                    {flag("sendCookies", "Send cookies to the server", "Can stop the client loading if the server's CORS is strict")}
+                    {flag("debugFlux", "Log connection details to the console", "Helps diagnose missing messages")}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: C.header }}>Tag mapping</span>
+                        <TextInput value={store.tagMap} onChange={(v: string) => { store.tagMap = v; }} />
+                        <span style={{ fontSize: 12, color: C.muted }}>bit=LABEL pairs. Add * for a verified check and |#hex for a color. Example: 28=OFFICIAL*,30=AI*,16=BOT|#4e5058</span>
+                    </div>
+                </SettingsSection>
+            )}
+
+            <span style={{ fontSize: 12, color: C.muted }}>Most changes need a restart of Discord.</span>
+        </div>
+    );
+}
+
 const settings = definePluginSettings({
     spoofVerified: {
+        hidden: true,
         type: OptionType.BOOLEAN,
         description: "On non-Discord instances only: report the account as verified with an email set, so the client does not lock chat behind email verification or 'claim your account'. Client-side only.",
         default: true
     },
     spoofPhone: {
+        hidden: true,
         type: OptionType.BOOLEAN,
         description: "Also report a phone number (for servers with the highest verification level). Non-Discord instances only.",
         default: false
     },
     rewriteText: {
+        hidden: true,
         type: OptionType.BOOLEAN,
         description: "On non-Discord instances only: show your instance's hostname instead of discord.com, discord.gg and similar in settings, boost pages and invite screens. Chat messages and embeds are left alone.",
         default: true
     },
     showBadge: {
+        hidden: true,
         type: OptionType.BOOLEAN,
         description: "Show a small badge with the instance name while connected to a non-Discord instance. Click it to open the switcher.",
         default: true
     },
     userTags: {
+        hidden: true,
         type: OptionType.BOOLEAN,
         description: "On non-Discord instances only: show tags such as OFFICIAL and AI next to usernames in messages and the member list, based on the account's public flags.",
         default: true
     },
     tagMap: {
+        hidden: true,
         type: OptionType.STRING,
         description: "Which public-flag bit shows which tag, as bit=LABEL pairs separated by commas. OFFICIAL and AI always get the verified check mark; add * after any other label to give it one, and |#hex after a label for a custom color. Example: 28=OFFICIAL*,30=AI*,16=BOT|#4e5058",
         default: "28=OFFICIAL*,30=AI*"
     },
     e2eeUrl: {
+        hidden: true,
         type: OptionType.STRING,
         description: "Address of the FossCORD/MeowCORD end-to-end encryption script (https only). It runs inside your client with access to your login, so only use a script you trust. Takes effect after a restart.",
         default: "https://iambrdn.com/project/switcher/e2ee.js"
     },
     e2eeHash: {
+        hidden: true,
         type: OptionType.STRING,
         description: "Optional SHA-256 (hex) of the script. When set, the script only runs if it matches exactly, so a changed or tampered file is refused. Leave empty to run whatever the address serves.",
         default: ""
     },
     experimental: {
+        hidden: true,
         type: OptionType.BOOLEAN,
         description: "Turns on the newer, less-tested features: reconnecting when messages were missed, checking other channels, applying missed edits and deletes, notification name prefixes, and profile-popout tags. Turn this off if the client refreshes or crashes by itself. Takes effect after a restart.",
         default: false
     },
     sendCookies: {
+        hidden: true,
         type: OptionType.BOOLEAN,
         description: "On non-Discord instances only: send requests to the instance's API with credentials, so the browser stores and sends its session cookie. Needs the server to allow credentialed requests from discord.com. If the client stops loading after enabling this, switch back to Discord with Ctrl+Alt+Shift+D and turn it off. Takes effect after a restart.",
         default: false
     },
     pollOtherChannels: {
+        hidden: true,
         type: OptionType.BOOLEAN,
         description: "Also check other channels you can see for messages the live connection missed, so unread badges stay accurate. Runs about every fourth check, and needs your server to report each channel's last message.",
         default: true
     },
     syncEdits: {
+        hidden: true,
         type: OptionType.BOOLEAN,
         description: "While checking the open channel, also apply edits and deletions the live connection missed.",
         default: true
     },
     autoReconnect: {
+        hidden: true,
         type: OptionType.BOOLEAN,
         description: "When a check finds messages the live connection missed, close the gateway connection so the client reconnects. Limited to once a minute and three times per ten minutes. Takes effect after a restart.",
         default: true
     },
     notifyPrefix: {
+        hidden: true,
         type: OptionType.BOOLEAN,
         description: "On non-Discord instances only: put the instance name in front of desktop notification titles, if the client's notification path allows it. Takes effect after a restart.",
         default: true
     },
     notifySound: {
+        hidden: true,
         type: OptionType.BOOLEAN,
         description: "On non-Discord instances only: play an extra two-tone ping for direct messages and mentions, so they sound different from real Discord. Plays in addition to the client's own sound.",
         default: false
     },
     pollMessages: {
+        hidden: true,
         type: OptionType.BOOLEAN,
         description: "On non-Discord instances only: every few seconds, fetch the newest messages in the open channel and show any the live connection missed. A fallback for servers whose live updates stall.",
         default: true
     },
     pollSeconds: {
+        hidden: true,
         type: OptionType.NUMBER,
         description: "How often to check for missed messages, in seconds (minimum 3).",
         default: 8
     },
     debugFlux: {
+        hidden: true,
         type: OptionType.BOOLEAN,
         description: "Log gateway-related events (connection open and close, new messages, typing, history loads) to the console to help diagnose missing live updates. Takes effect after a restart.",
         default: false
     },
-    open: {
+    panel: {
         type: OptionType.COMPONENT,
-        component: () => <Button onClick={() => openSwitcher()}>Open instance switcher</Button>
+        component: () => <SettingsPanel />
     }
 });
 
