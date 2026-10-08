@@ -58,7 +58,6 @@ It is built for the desktop client. It works by pointing the client's own endpoi
 1. Copy this folder to `src/userplugins/InstanceSwitcher/` in your Vencord / Equicord checkout. It must contain:
    - `index.tsx`
    - `native.ts`
-   - `e2ee.js` (required to build, even if you never use encrypted DMs)
 2. Build and inject:
    ```sh
    pnpm build
@@ -114,7 +113,7 @@ Each instance has its own saved accounts. A new instance starts logged out, and 
 
 Some servers (FossCORD, MeowCORD) end-to-end encrypt DMs. Without help, the stock client shows `🔒 Encrypted message` instead of the text, because the real text is decrypted by the server's own web client.
 
-Turn on **FossCORD/MeowCORD server** for an instance (in Add, or in Edit followed by Save) and the plugin loads that server's own encryption client, `e2ee.js`, into the Discord client on that instance only. You get:
+Turn on **FossCORD/MeowCORD server** for an instance (in Add, or in Edit followed by Save) and the plugin downloads the encryption client (`e2ee.js`) from the address in the `e2eeUrl` setting and runs it in the Discord client on that instance only. Nothing is downloaded for instances with the switch off. You get:
 
 - Decrypted DMs, and encryption of what you send
 - A password unlock prompt when the client is locked
@@ -127,7 +126,8 @@ Things to know:
 - Whether **old** messages open depends on the server's key backup unlocking. Messages sent before the device existed may say "Sent before this browser was set up".
 - **Encrypted attachments do not load.** They depend on a service worker that only works on the server's own site. Text works.
 - In the server's default trust mode, the server can recover your keys using your password, exactly as in its web client.
-- `e2ee.js` is a **pinned copy** of the server's script, with one change: the Node-only `import("crypto")` fallback in `loadSubtleCrypto` is removed, because Vencord's build refuses Node imports. If you update the file, make the same edit: delete the `try { ... import("crypto") ... } catch` block and put `throw new NotSupportedError("Web Crypto is not available");` in its place.
+- `e2ee.js` is hosted by you, not bundled. Host the **modified** copy: the Node-only `import("crypto")` fallback in `loadSubtleCrypto` replaced with `throw new NotSupportedError("Web Crypto is not available");`. In a browser both versions behave the same. The plugin downloads it through its native helper, so the host does not need CORS headers.
+- Until the file is published at the `e2ee.js` address, the plugin shows an error toast and everything else keeps working.
 - Troubleshooting: run `__fosscordE2ee.status()` in the console. The `ready`, `failure`, `locked` and `hooks` fields show what is wrong.
 
 ---
@@ -153,6 +153,8 @@ All of these are in Settings, Vencord, Plugins, InstanceSwitcher. Settings marke
 | `notifyPrefix` | on | Needs `experimental`. Prefixes notification titles with the instance name, if the client's notification path allows it |
 | `notifySound` | off | Clones only. Plays an extra two-tone ping for DMs and mentions |
 | `sendCookies` | off | Clones only. Sends requests to the instance's API with credentials. Experimental, and it can stop the client from loading if the server's CORS setup does not allow it |
+| `e2eeUrl` | `https://iambrdn.com/project/switcher/e2ee.js` | https address the encryption script is downloaded from, only for instances with the FossCORD/MeowCORD switch on |
+| `e2eeHash` | empty | Optional SHA-256 (hex) of the script. When set, a script that does not match is refused |
 | `debugFlux` | off | Logs gateway events and websocket connections to the console. Needs a restart |
 
 Profile-popout tags are also under `experimental`. Most changes need a restart of Discord.
@@ -165,7 +167,7 @@ Profile-popout tags are also under `experimental`. Most changes need a restart o
 - **Content security policy.** Discord's policy blocks unknown hosts. The plugin asks Vencord's override API to allow each instance's hosts. Websockets need an explicit `wss://` entry, which Vencord's API cannot express, so `native.ts` adds those to Vencord's policy map and remembers them in a file.
 - **Per-instance accounts.** The instance list lives in local storage so changes are saved immediately. On a switch, the plugin records which instance you are leaving, and the swap happens at the next startup, before Discord reads its storage: it saves the outgoing instance's account-related keys and restores the incoming one's.
 - **Missed-message fallback.** On clones the plugin checks the open channel through the REST API and feeds anything missing into the client as if it had arrived live. The optional extras build on that.
-- **Encrypted DMs.** The pinned `e2ee.js` is bundled but only run on instances with the FossCORD/MeowCORD switch on. The plugin gives it the client's webpack require object and a few storage shims, and the script finds the client's HTTP layer, dispatcher and gateway by structure.
+- **Encrypted DMs.** The `e2ee.js` script is downloaded by `native.ts` (so the client's content-security policy and CORS do not apply), optionally checked against `e2eeHash`, and only run on instances with the FossCORD/MeowCORD switch on. The plugin gives it the client's webpack require object and a few storage shims, and the script finds the client's HTTP layer, dispatcher and gateway by structure.
 
 ---
 
@@ -179,7 +181,7 @@ Profile-popout tags are also under `experimental`. Most changes need a restart o
 | Console mentions CORS | The server's API must answer `https://discord.com` with the right headers on every response, including errors |
 | Messages missing until a reload | The server's live updates stalled. Keep `pollMessages` on, and turn on `debugFlux` to see whether the connection is silent |
 | The client refreshes or crashes by itself | Turn `experimental` off |
-| Build fails on `e2ee.js` | See the note about `import("crypto")` above, and keep the file named exactly `e2ee.js` next to `index.tsx` |
+| "Couldn't start end-to-end encryption" toast | The `e2eeUrl` address is not live yet, is not https, or the file does not match `e2eeHash` |
 
 For anything else, turn on `debugFlux`, restart, and look for lines beginning `[InstanceSwitcher]` in the console (Ctrl+Shift+I).
 
@@ -190,7 +192,8 @@ For anything else, turn on `debugFlux`, restart, and look for lines beginning `[
 - Saved logins sit in plain text in the client's local storage and in the plugin's saved state. Treat them like passwords.
 - Never share screenshots of the Network tab with the `Authorization` or `Cookie` lines visible. They contain your login token.
 - `native.ts` adds `wss://` entries to the content-security policy **without** a confirmation prompt, but it only accepts plain `ws(s)://host[:port]` strings.
-- `e2ee.js` runs inside your client. It only talks to the instance's API. It is the server's code, so only enable the switch for servers you trust.
+- `e2ee.js` is downloaded and run inside your client, with access to your login. Only point `e2eeUrl` at a host you control, and set `e2eeHash` to pin the exact file.
+- `native.ts` only fetches `https` addresses, and only when the plugin asks for the encryption script.
 - Importing an instance list from someone else means trusting where it points. Check the addresses before connecting.
 
 ---
@@ -200,5 +203,4 @@ For anything else, turn on `debugFlux`, restart, and look for lines beginning `[
 | File | Purpose |
 |---|---|
 | `index.tsx` | The plugin: instance list and switcher interface, endpoint override, per-instance accounts, tags, fallback checks and the encrypted-DM loader |
-| `native.ts` | Main-process helper that adds `wss://` sources to the content-security policy |
-| `e2ee.js` | Pinned copy of the FossCORD/MeowCORD server's E2EE client, with the one edit described above |
+| `native.ts` | Main-process helper that adds `wss://` sources to the content-security policy and downloads the encryption script |
