@@ -134,7 +134,7 @@ Things to know:
 
 ## Settings
 
-All of these are in Settings, Vencord, Plugins, InstanceSwitcher. Settings marked "clones only" never affect real Discord.
+The plugin's settings page groups these into **On other servers**, **Messages and sound**, **Encrypted DMs** and a collapsed **Advanced** section, with an **Open switcher** button at the top. All of these are in Settings, Vencord, Plugins, InstanceSwitcher. Settings marked "clones only" never affect real Discord.
 
 | Setting | Default | What it does |
 |---|---|---|
