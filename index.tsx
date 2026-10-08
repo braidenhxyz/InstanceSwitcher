@@ -307,7 +307,10 @@ type CspApi = {
     requestAddOverride(url: string, directives: string[], reason: string): Promise<string>;
 };
 
-type NativeApi = { allowGateways(origins: string[]): Promise<{ added: boolean; all: string[] }> };
+type NativeApi = {
+    allowGateways(origins: string[]): Promise<{ added: boolean; all: string[] }>;
+    fetchScript(url: string): Promise<{ ok: boolean; text?: string; error?: string }>;
+};
 
 const cspApi = (): CspApi | undefined => (window as any).VencordNative?.csp;
 const nativeApi = (): NativeApi | undefined => (window as any).VencordNative?.pluginHelpers?.InstanceSwitcher;
@@ -982,6 +985,16 @@ const settings = definePluginSettings({
         type: OptionType.STRING,
         description: "Which public-flag bit shows which tag, as bit=LABEL pairs separated by commas. OFFICIAL and AI always get the verified check mark; add * after any other label to give it one, and |#hex after a label for a custom color. Example: 28=OFFICIAL*,30=AI*,16=BOT|#4e5058",
         default: "28=OFFICIAL*,30=AI*"
+    },
+    e2eeUrl: {
+        type: OptionType.STRING,
+        description: "Address of the FossCORD/MeowCORD end-to-end encryption script (https only). It runs inside your client with access to your login, so only use a script you trust. Takes effect after a restart.",
+        default: "https://iambrdn.com/project/switcher/e2ee.js"
+    },
+    e2eeHash: {
+        type: OptionType.STRING,
+        description: "Optional SHA-256 (hex) of the script. When set, the script only runs if it matches exactly, so a changed or tampered file is refused. Leave empty to run whatever the address serves.",
+        default: ""
     },
     experimental: {
         type: OptionType.BOOLEAN,
@@ -1665,8 +1678,22 @@ async function loadE2ee(req: any) {
     const holder: any = ((window as any).__fosscordE2ee ??= { reqs: [] });
     holder.reqs = [req];
     holder.updateMessage ??= updateDecryptedMessage;
-    await withStorageShim(() => import("./e2ee.js"));
-    log("end-to-end encryption module loaded");
+    const url = (settings.store.e2eeUrl || "").trim();
+    if (!/^https:\/\/[^\s/]+\/\S*$/i.test(url)) throw new Error("The encryption script address must be an https address");
+    const native = nativeApi();
+    if (!native?.fetchScript) throw new Error("native helper missing, rebuild the plugin with native.ts");
+    const res = await native.fetchScript(url);
+    if (!res.ok || typeof res.text !== "string") throw new Error(res.error || "download failed");
+    const want = (settings.store.e2eeHash || "").trim().toLowerCase();
+    if (want) {
+        const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(res.text));
+        const got = [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, "0")).join("");
+        if (got !== want) throw new Error("the script does not match the pinned hash, refusing to run it");
+    }
+    await withStorageShim(async () => {
+        (0, eval)(res.text + "\n//# sourceURL=" + url);
+    });
+    log("end-to-end encryption module loaded from", url);
 }
 
 function startE2ee() {
