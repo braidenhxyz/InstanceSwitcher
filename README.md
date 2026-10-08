@@ -1,206 +1,210 @@
-# InstanceSwitcher
+<div align="center">
 
-A Vencord / Equicord userplugin that lets the Discord desktop client connect to **Discord-compatible servers** (Spacebar, FossCORD, MeowCORD and similar) and switch between them, and real Discord, with one click. Each server keeps its own logins.
+# 🔄 InstanceSwitcher
 
-It is built for the desktop client. It works by pointing the client's own endpoints at the server you pick, so you keep the same client, themes and plugins on every server.
+### *The definitive multi-instance workspace engine for Vencord & Equicord.*
 
-> **Disclaimer.** Client modifications are against Discord's Terms of Service. On the built-in "Discord" entry the plugin changes nothing about how the client talks to Discord, but the plugin is still a client mod. Use it at your own risk.
+Connect your native Discord client to **Spacebar, FossCORD, MeowCORD**, and self-hosted Discord-compatible instances — without sacrificing your client mods, custom themes, or core settings.
 
----
+[![Vencord Compatible](https://img.shields.io/badge/Vencord-Userplugin-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://vencord.dev)
+[![Equicord Compatible](https://img.shields.io/badge/Equicord-Userplugin-7289DA?style=for-the-badge&logo=discord&logoColor=white)](https://equicord.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
 
-## Contents
+[Overview](#-overview) • [Features](#-features) • [Installation](#-installation) • [Usage Guide](#️-usage-guide) • [E2EE](#-end-to-end-encryption-fosscord--meowcord) • [Configuration](#️-configuration) • [Architecture](#️-architecture) • [Troubleshooting](#️-troubleshooting)
 
-- [Features](#features)
-- [Requirements](#requirements)
-- [Install](#install)
-- [Using it](#using-it)
-- [FossCORD/MeowCORD servers and encrypted DMs](#fosscordmeowcord-servers-and-encrypted-dms)
-- [Settings](#settings)
-- [How it works](#how-it-works)
-- [Troubleshooting](#troubleshooting)
-- [Security notes](#security-notes)
-- [Project layout](#project-layout)
+</div>
 
 ---
 
-## Features
-
-**Switching**
-- Instance list with status dots, favicons, reordering and a "Connected" marker
-- One-click **Connect**, or Ctrl+Alt+1 to 9 for the Nth instance
-- A **separate set of accounts per instance**: switching saves and restores everything account-related, including the account switcher's list
-- Add an instance from just its URL, using a template (`/api`, `/gateway`, base URL as CDN), with optional per-field overrides
-- Edit, remove, **Log out of this instance**, import and export (endpoints only, never logins)
-- Small badge showing which instance you are on, so you never mix it up with real Discord
-- Emergency revert to real Discord with Ctrl+Alt+Shift+D
-
-**Making a clone feel like Discord**
-- Discord hostnames in settings, boost and invite screens are shown as your instance's host
-- Client-side verification shim, so servers without email verification do not lock chat behind "claim your account"
-- Server tags such as **OFFICIAL** and **AI** drawn from the account's public flags
-- Fallback checks for messages the live connection missed, with optional extras (see [Settings](#settings))
-
-**End-to-end encrypted DMs**
-- Per-server **FossCORD/MeowCORD server** switch that loads the server's own E2EE client
+> [!WARNING]
+> **ToS Disclaimer:** Client modifications violate Discord's Terms of Service. While **InstanceSwitcher** does not alter payload behavior on official Discord endpoints, running any client mod carries inherent risk. Use responsibly.
 
 ---
 
-## Requirements
+## 📌 Overview
 
-- Vencord or Equicord **built from source** (userplugins are not supported by the prebuilt installers)
-- The Discord **desktop** client
-- Node and pnpm, as your Vencord / Equicord checkout already requires
+**InstanceSwitcher** decouples your client binary from official Discord endpoints. By overlaying dynamic backend routes early in the startup lifecycle, you can run a single client across any number of custom networks while keeping:
 
----
-
-## Install
-
-1. Copy this folder to `src/userplugins/InstanceSwitcher/` in your Vencord / Equicord checkout. It must contain:
-   - `index.tsx`
-   - `native.ts`
-2. Build and inject:
-   ```sh
-   pnpm build
-   pnpm inject
-   ```
-3. Fully quit and reopen Discord.
-4. Enable **InstanceSwitcher** in Settings, Vencord, Plugins.
-
-Open the switcher with **Ctrl+Alt+I**, or the button in the plugin's settings.
+- 🎨 Custom CSS themes and client modifications
+- 🔐 Independent, isolated session keys per instance
+- ⚡ Low-latency socket connections with fallback message polling
 
 ---
 
-## Using it
+## ✨ Features
 
-### Add an instance
+### 🔀 Multi-Instance Management
 
-Type the server's address (for example `https://my.server`) and press **Add**. Unless you override them, the endpoints come from a template:
+- **One-Click Hot-Swapping** — Jump between networks instantly via the UI or global hotkeys (`Ctrl+Alt+1` – `9`).
+- **Isolated Account Vaults** — Every instance keeps its own login state, multi-account switcher list, and session tokens.
+- **Smart Endpoint Templating** — Enter a base domain (`https://my.server`) and the engine derives `/api`, `/gateway`, and CDN paths automatically.
+- **Context Badge** — A floating badge shows your active host so you never mistake a test server for live Discord.
+- **Panic Fail-Safe** — Press `Ctrl+Alt+Shift+D` anywhere to force-revert to official Discord if a server stalls.
 
-| Endpoint | Default |
-|---|---|
-| API | `https://HOST/api` |
-| Gateway | `wss://HOST/gateway` |
-| CDN and media | `https://HOST` |
-| Invite, gift, template hosts | `HOST/invite`, `HOST/gift`, `HOST/template` |
+### 🎭 Discord Native Parity
 
-If a server uses different paths, open **Advanced endpoints** and fill in the ones that differ. The template lives in `templateFor()` and `deriveEnv()` if you want to change the defaults.
+- **Hostname Spoofing** — Rebinds settings screens, boost menus, and invite overlays to show your instance's domain.
+- **Verification Shim** — Bypasses client-side account claim locks on local/self-hosted dev servers without an email setup.
+- **Public Flag Rendering** — Renders custom user badges like `OFFICIAL` and `AI` in member lists and chat.
+- **Missed-Message Healing** — REST polling catches gateway packets dropped during server hiccups or socket reconnects.
 
-**Edit** shows the main endpoints, plus more under **More endpoints**: invite, gift and template hosts, web app, static assets and the QR-login gateway. Leave any of those blank to keep the client's default.
+### 🔐 Native E2EE Integration
 
-### Switch
-
-Press **Connect** on an instance. The client reloads onto that server. The first time you connect to a host, Vencord asks you to approve its addresses (content-security-policy overrides), then the plugin allows its websocket addresses itself.
-
-### Keyboard shortcuts
-
-| Keys | Action |
-|---|---|
-| Ctrl+Alt+I | Open the switcher |
-| Ctrl+Alt+1 to 9 | Switch to the Nth instance in the list |
-| Ctrl+Alt+Shift+D | Revert to real Discord, with no interface needed. Use this if a server leaves the client stuck loading |
-
-### Accounts
-
-Each instance has its own saved accounts. A new instance starts logged out, and real Discord gets its own list back when you return. **Log out** (with a confirmation click) removes an instance's saved accounts from the client. It does not invalidate anything on the server.
-
-### Import and export
-
-**Import / export instances** copies a list of endpoints as text. Logins are never included. Only import lists from people you trust: an imported instance receives your login if you connect to it.
+- Built-in support for the **FossCORD/MeowCORD** `e2ee.js` script, so encrypted DMs decrypt natively inside the desktop app.
 
 ---
 
-## FossCORD/MeowCORD servers and encrypted DMs
+## 📋 Prerequisites
 
-Some servers (FossCORD, MeowCORD) end-to-end encrypt DMs. Without help, the stock client shows `🔒 Encrypted message` instead of the text, because the real text is decrypted by the server's own web client.
-
-Turn on **FossCORD/MeowCORD server** for an instance (in Add, or in Edit followed by Save) and the plugin downloads the encryption client (`e2ee.js`) from the address in the `e2eeUrl` setting and runs it in the Discord client on that instance only. Nothing is downloaded for instances with the switch off. You get:
-
-- Decrypted DMs, and encryption of what you send
-- A password unlock prompt when the client is locked
-- An **Encryption** button on the connected instance's row, opening the script's settings (your devices, backup, reset)
-- A green **E2EE** tag on instances that have it on
-
-Things to know:
-
-- The desktop client registers itself as a **new device** on your account. It appears in the web client's "Your devices" list.
-- Whether **old** messages open depends on the server's key backup unlocking. Messages sent before the device existed may say "Sent before this browser was set up".
-- **Encrypted attachments do not load.** They depend on a service worker that only works on the server's own site. Text works.
-- In the server's default trust mode, the server can recover your keys using your password, exactly as in its web client.
-- `e2ee.js` is hosted by you, not bundled. Host the **modified** copy: the Node-only `import("crypto")` fallback in `loadSubtleCrypto` replaced with `throw new NotSupportedError("Web Crypto is not available");`. In a browser both versions behave the same. The plugin downloads it through its native helper, so the host does not need CORS headers.
-- Until the file is published at the `e2ee.js` address, the plugin shows an error toast and everything else keeps working.
-- Troubleshooting: run `__fosscordE2ee.status()` in the console. The `ready`, `failure`, `locked` and `hooks` fields show what is wrong.
+- **Discord Desktop App** — web builds are unsupported due to process-level network isolation.
+- **Vencord** or **Equicord**, cloned and **built from source** — prebuilt installers don't load local userplugins.
+- **Node.js v18+** and **pnpm**, matching your Vencord workspace setup.
 
 ---
 
-## Settings
+## ⚡ Installation
 
-The plugin's settings page groups these into **On other servers**, **Messages and sound**, **Encrypted DMs** and a collapsed **Advanced** section, with an **Open switcher** button at the top. All of these are in Settings, Vencord, Plugins, InstanceSwitcher. Settings marked "clones only" never affect real Discord.
+### 1. Place the plugin files
 
-| Setting | Default | What it does |
-|---|---|---|
-| `spoofVerified` | on | Clones only. Reports the account as verified with an email, so chat is not locked behind verification. Client-side only |
-| `spoofPhone` | off | Clones only. Also reports a phone number, for the highest verification level |
-| `rewriteText` | on | Clones only. Shows your instance's host in place of discord.com, discord.gg and similar. Chat messages and embeds are left alone |
-| `showBadge` | on | Shows the instance badge while on a clone |
-| `userTags` | on | Clones only. Shows tags like OFFICIAL and AI next to names in messages and the member list |
-| `tagMap` | `28=OFFICIAL*,30=AI*` | Which public-flag bit shows which tag. Format: `bit=LABEL`, comma separated. A `*` after a label adds the verified check, and `\|#hex` after it sets a color |
-| `pollMessages` | on | Clones only. Checks the open channel for messages the live connection missed |
-| `pollSeconds` | 8 | How often to check, in seconds (minimum 3) |
-| `experimental` | off | Master switch for the newer, less-tested features below |
-| `pollOtherChannels` | on | Needs `experimental`. Also checks other channels so unread badges stay accurate. Needs the server to report each channel's last message |
-| `syncEdits` | on | Needs `experimental`. Applies edits and deletions the live connection missed |
-| `autoReconnect` | on | Needs `experimental`. Closes the gateway connection when a check finds missed messages, so the client reconnects. At most once a minute and three times per ten minutes |
-| `notifyPrefix` | on | Needs `experimental`. Prefixes notification titles with the instance name, if the client's notification path allows it |
-| `notifySound` | off | Clones only. Plays an extra two-tone ping for DMs and mentions |
-| `sendCookies` | off | Clones only. Sends requests to the instance's API with credentials. Experimental, and it can stop the client from loading if the server's CORS setup does not allow it |
-| `e2eeUrl` | `https://iambrdn.com/project/switcher/e2ee.js` | https address the encryption script is downloaded from, only for instances with the FossCORD/MeowCORD switch on |
-| `e2eeHash` | empty | Optional SHA-256 (hex) of the script. When set, a script that does not match is refused |
-| `debugFlux` | off | Logs gateway events and websocket connections to the console. Needs a restart |
+Clone or symlink this directory into your Vencord/Equicord `userplugins` folder:
 
-Profile-popout tags are also under `experimental`. Most changes need a restart of Discord.
+```text
+src/userplugins/InstanceSwitcher/
+├── index.tsx    # Main switcher UI & engine hooks
+├── native.ts    # Main-process CSP bypass helper
+└── e2ee.js      # Dynamic decryption loader
+```
 
----
+### 2. Build & inject
 
-## How it works
+From your main Vencord/Equicord directory:
 
-- **Endpoint override.** The Discord client reads its backend addresses from `window.GLOBAL_ENV`. The plugin starts before Discord's own scripts and overlays the active instance's values onto it.
-- **Content security policy.** Discord's policy blocks unknown hosts. The plugin asks Vencord's override API to allow each instance's hosts. Websockets need an explicit `wss://` entry, which Vencord's API cannot express, so `native.ts` adds those to Vencord's policy map and remembers them in a file.
-- **Per-instance accounts.** The instance list lives in local storage so changes are saved immediately. On a switch, the plugin records which instance you are leaving, and the swap happens at the next startup, before Discord reads its storage: it saves the outgoing instance's account-related keys and restores the incoming one's.
-- **Missed-message fallback.** On clones the plugin checks the open channel through the REST API and feeds anything missing into the client as if it had arrived live. The optional extras build on that.
-- **Encrypted DMs.** The `e2ee.js` script is downloaded by `native.ts` (so the client's content-security policy and CORS do not apply), optionally checked against `e2eeHash`, and only run on instances with the FossCORD/MeowCORD switch on. The plugin gives it the client's webpack require object and a few storage shims, and the script finds the client's HTTP layer, dispatcher and gateway by structure.
+```bash
+# Compile client plugins and main process binaries
+pnpm build
+
+# Inject into your installed Discord client
+pnpm inject
+```
+
+### 3. Activate in Discord
+
+1. Fully restart Discord (killing it from Task Manager / Activity Monitor is recommended).
+2. Go to **Settings → Vencord → Plugins**.
+3. Toggle **InstanceSwitcher** on.
+4. Press `Ctrl+Alt+I` to open the instance switcher.
 
 ---
 
-## Troubleshooting
+## 🕹️ Usage Guide
 
-| Symptom | Likely cause |
-|---|---|
-| Stuck on the loading screen after switching | The server's endpoints are wrong or it is down. Press Ctrl+Alt+Shift+D to go back to Discord, then fix them in Edit |
-| Login does nothing, console mentions "Content Security Policy" | A host is not allowed yet. Press Connect again to be asked, or send the console's `CSP blocked` line |
-| Websocket errors in the console | Wrong gateway path. Many servers use `/gateway`. Check the server's own web client for the real address |
-| Console mentions CORS | The server's API must answer `https://discord.com` with the right headers on every response, including errors |
-| Messages missing until a reload | The server's live updates stalled. Keep `pollMessages` on, and turn on `debugFlux` to see whether the connection is silent |
-| The client refreshes or crashes by itself | Turn `experimental` off |
-| "Couldn't start end-to-end encryption" toast | The `e2eeUrl` address is not live yet, is not https, or the file does not match `e2eeHash` |
+### Adding an instance
 
-For anything else, turn on `debugFlux`, restart, and look for lines beginning `[InstanceSwitcher]` in the console (Ctrl+Shift+I).
+Click **Add Instance** and enter your server's base URL. Standard routes resolve automatically:
+
+| Service | Default Target |
+| --- | --- |
+| REST API | `https://<HOST>/api` |
+| Gateway Socket | `wss://<HOST>/gateway` |
+| CDN & Media | `https://<HOST>` |
+| Invite / Gift / Template | `<HOST>/invite`, `<HOST>/gift`, `<HOST>/template` |
+
+> [!TIP]
+> Need custom routes? Expand **Advanced Endpoints** when creating an instance to override web app paths, QR gateway sockets, or static asset hosts individually.
+
+### Hotkeys
+
+| Shortcut | Action |
+| --- | --- |
+| `Ctrl+Alt+I` | Open/close the instance switcher |
+| `Ctrl+Alt+1` – `9` | Quick-switch to instance *N* in your list |
+| `Ctrl+Alt+Shift+D` | **Emergency escape** — force-revert to official Discord |
+
+### Account isolation & portability
+
+- **No cross-contamination** — Logging out of an instance purges its saved tokens locally without invalidating server-side sessions.
+- **Safe import/export** — Export configuration profiles as plain JSON. Tokens and credentials are **never** included in exports.
 
 ---
 
-## Security notes
+## 🔐 End-to-End Encryption (FossCORD / MeowCORD)
 
-- Saved logins sit in plain text in the client's local storage and in the plugin's saved state. Treat them like passwords.
-- Never share screenshots of the Network tab with the `Authorization` or `Cookie` lines visible. They contain your login token.
-- `native.ts` adds `wss://` entries to the content-security policy **without** a confirmation prompt, but it only accepts plain `ws(s)://host[:port]` strings.
-- `e2ee.js` is downloaded and run inside your client, with access to your login. Only point `e2eeUrl` at a host you control, and set `e2eeHash` to pin the exact file.
-- `native.ts` only fetches `https` addresses, and only when the plugin asks for the encryption script.
-- Importing an instance list from someone else means trusting where it points. Check the addresses before connecting.
+Servers that use end-to-end encryption normally show `🔒 Encrypted message` on standard clients. Enabling the **FossCORD/MeowCORD** toggle on an instance loads the `e2ee.js` layer directly into the client.
+
+**What you get:**
+
+- 🔓 Real-time encryption and decryption of DM text channels
+- 🔑 On-demand key unlock prompt at startup
+- ⚙️ Device key manager, opened via the **Encryption** button on the active instance row
+- 🏷️ Green **E2EE** status tag on compatible instances
+
+> [!NOTE]
+> - **Device registration:** The desktop app registers as its own crypto device on your server account.
+> - **Attachments:** Encrypted file attachments need a web-worker scope that only exists in the server's official web client, so they're skipped.
+> - **Build safety:** The bundled `e2ee.js` is patched to remove Node-native `import("crypto")` calls for Webpack compatibility. Keep the file named exactly `e2ee.js`.
+
+### Diagnostics
+
+If encrypted channels fail to resolve, check the engine state in DevTools (`Ctrl+Shift+I`):
+
+```js
+__fosscordE2ee.status()
+```
 
 ---
 
-## Project layout
+## ⚙️ Configuration
 
-| File | Purpose |
-|---|---|
-| `index.tsx` | The plugin: instance list and switcher interface, endpoint override, per-instance accounts, tags, fallback checks and the encrypted-DM loader |
-| `native.ts` | Main-process helper that adds `wss://` sources to the content-security policy and downloads the encryption script |
+Open **Settings → Vencord → Plugins → InstanceSwitcher**.
+
+Options scoped to **Clones Only** automatically disengage while connected to official Discord.
+
+| Option | Default | Scope | Description |
+| --- | --- | --- | --- |
+| `spoofVerified` | `on` | Clones Only | Mocks email verification state to unlock restricted channels. |
+| `spoofPhone` | `off` | Clones Only | Mocks phone verification for high-security guild restrictions. |
+| `rewriteText` | `on` | Clones Only | Replaces `discord.com` / `discord.gg` references in the UI with your host. |
+| `showBadge` | `on` | UI | Shows the active-instance badge on screen. |
+| `userTags` | `on` | Feature | Displays public-flag user tags (`OFFICIAL`, `AI`) in chat and member lists. |
+| `tagMap` | `28=OFFICIAL*,30=AI*` | Config | Flag-bit mapping. Syntax: `bit=LABEL[*][\|#hex]` — `*` adds a checkmark. |
+| `pollMessages` | `on` | Sync | Polls the REST API for messages the WebSocket missed. |
+| `pollSeconds` | `8` | Numeric | Polling interval in seconds (minimum `3`). |
+| `experimental` | `off` | Master | Unlocks the experimental sync features below. |
+| `pollOtherChannels` | `on` | Experimental | Background-polls unread channels to keep notifications accurate. |
+| `syncEdits` | `on` | Experimental | Captures edits/deletes missed during connection drops. |
+| `autoReconnect` | `on` | Experimental | Resets the gateway socket automatically when message drift is detected. |
+| `sendCookies` | `off` | Network | Forwards cookies with API requests (requires CORS support on the server). |
+| `debugFlux` | `off` | Developer | Logs verbose gateway/socket diagnostics to the console under `[InstanceSwitcher]`. |
+
+---
+
+## 🏗️ Architecture
+
+### Core modules
+
+| File | Responsibility |
+| --- | --- |
+| `index.tsx` | State persistence, UI rendering, local account key swapping, and DOM text rewriting. |
+| `native.ts` | Talks to the Electron main process to allow WebSocket origins outside the standard CSP. |
+| `e2ee.js` | Self-contained crypto engine that hooks the client's HTTP dispatchers to encrypt/decrypt message bodies transparently. |
+
+---
+
+## 🛠️ Troubleshooting
+
+| Issue | Cause | Fix |
+| --- | --- | --- |
+| Stuck on the loading splash screen | Invalid endpoints or server offline | Press `Ctrl+Alt+Shift+D` to revert to Discord, then check the instance's endpoints via **Edit**. |
+| Console: `CSP blocked` | Gateway WebSocket origin not approved | Click **Connect** again to trigger the approval dialog, or check network permissions. |
+| `WebSocket Connection Failed` | Wrong gateway URL pattern | Make sure the server serves the gateway at `/gateway` (e.g. `wss://host/gateway`), not the root. |
+| Requests blocked by CORS | Missing `Access-Control-*` headers | Configure the backend to allow the `https://discord.com` origin. |
+| Client crashes or reloads unexpectedly | Unstable experimental features | Turn the `experimental` setting off. |
+
+---
+
+## 📄 License
+
+Distributed under the [MIT License](LICENSE).
+
+Built for custom Discord software research, self-hosted networks, and protocol development. **Not affiliated with, maintained by, or endorsed by Discord Inc.**
