@@ -39,7 +39,8 @@ Connect your native Discord client to **Spacebar, FossCORD, MeowCORD**, and self
 - **One-Click Hot-Swapping** — Jump between networks instantly via the UI or global hotkeys (`Ctrl+Alt+1` – `9`).
 - **Isolated Account Vaults** — Every instance keeps its own login state, multi-account switcher list, and session tokens.
 - **Smart Endpoint Templating** — Enter a base domain (`https://my.server`) and the engine derives `/api`, `/gateway`, and CDN paths automatically.
-- **Context Badge** — A floating badge shows your active host so you never mistake a test server for live Discord.
+- **Context Badge** — A floating badge shows your active host so you never mistake a test server for live Discord. It turns green when the connection is healthy and red when it drops.
+- **Start on Launch** — Click the star on any instance (including Discord) to have the app open on it every time.
 - **Panic Fail-Safe** — Press `Ctrl+Alt+Shift+D` anywhere to force-revert to official Discord if a server stalls.
 
 ### 🎭 Discord Native Parity
@@ -176,7 +177,7 @@ Options scoped to **Clones Only** automatically disengage while connected to off
 | `pollOtherChannels` | `on` | Experimental | Background-polls unread channels to keep notifications accurate. |
 | `syncEdits` | `on` | Experimental | Captures edits/deletes missed during connection drops. |
 | `autoReconnect` | `on` | Experimental | Resets the gateway socket automatically when message drift is detected. |
-| `e2eeUrl` | `https://iambrdn.com/projects/switcher/e2ee.js` | Encryption | https address the E2EE script is downloaded from, only for instances with the FossCORD/MeowCORD toggle on. |
+| `e2eeUrl` | `https://iambrdn.com/project/switcher/e2ee.js` | Encryption | https address the E2EE script is downloaded from, only for instances with the FossCORD/MeowCORD toggle on. |
 | `e2eeHash` | empty | Encryption | Optional SHA-256 (hex) of the script. When set, a script that doesn't match is refused. |
 | `sendCookies` | `off` | Network | Forwards cookies with API requests (requires CORS support on the server). |
 | `debugFlux` | `off` | Developer | Logs verbose gateway/socket diagnostics to the console under `[InstanceSwitcher]`. |

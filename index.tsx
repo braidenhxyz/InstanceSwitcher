@@ -21,6 +21,7 @@ interface Instance {
     store?: Store;
     icon?: string;
     foss?: boolean;
+    auto?: boolean;
 }
 
 interface State {
@@ -388,6 +389,24 @@ async function ensureCsp(inst: Instance): Promise<boolean> {
     return true;
 }
 
+const LAUNCHED = "InstanceSwitcher:launched";
+
+function autoLaunch() {
+    try {
+        if (!SS || SS.getItem(LAUNCHED)) return;
+        SS.setItem(LAUNCHED, "1");
+        if (state.pending) return;
+        const target = state.instances.find(i => i.auto);
+        if (target && target.id !== active().id) switchTo(target.id);
+    } catch (e) {
+        console.error("[InstanceSwitcher] auto-select failed", e);
+    }
+}
+
+function setStartInstance(id: string | null) {
+    commit({ ...state, instances: state.instances.map(i => ({ ...i, auto: i.id === id ? true : undefined })) });
+}
+
 function reload() {
     location.reload();
     setTimeout(() => {
@@ -668,7 +687,7 @@ function Switcher({ onClose }: { onClose: () => void; }) {
                             border: `1px solid ${isCur ? C.brand : C.border}`
                         }}
                     >
-                        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
                             <div style={{ display: "flex", flexDirection: "column", flexShrink: 0 }}>
                                 <span
                                     role="button"
@@ -704,10 +723,21 @@ function Switcher({ onClose }: { onClose: () => void; }) {
                                     boxShadow: status ? `0 0 6px ${C.green}` : "none"
                                 }}
                             />
+                            <span
+                                role="button"
+                                title={inst.auto ? "Opens on launch. Click to turn off" : "Open this one when Discord starts"}
+                                onClick={() => {
+                                    setStartInstance(inst.auto ? null : inst.id);
+                                    refresh();
+                                }}
+                                style={{ cursor: "pointer", fontSize: 16, lineHeight: 1, color: inst.auto ? "#f0b232" : C.muted, userSelect: "none", flexShrink: 0 }}
+                            >
+                                {inst.auto ? "★" : "☆"}
+                            </span>
                             <InstanceIcon key={`${inst.id}:${inst.icon ?? ""}`} inst={inst} />
-                            <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ flex: "1 1 150px", minWidth: 0 }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600, color: C.header }}>
-                                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                    <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                         {inst.name}
                                     </span>
                                     {isCur && (
@@ -717,6 +747,7 @@ function Switcher({ onClose }: { onClose: () => void; }) {
                                                 fontWeight: 700,
                                                 padding: "2px 7px",
                                                 borderRadius: 999,
+                                                flexShrink: 0,
                                                 background: C.brand,
                                                 color: "#fff"
                                             }}
@@ -732,6 +763,7 @@ function Switcher({ onClose }: { onClose: () => void; }) {
                                                 fontWeight: 700,
                                                 padding: "2px 7px",
                                                 borderRadius: 999,
+                                                flexShrink: 0,
                                                 background: C.green,
                                                 color: "#fff"
                                             }}
@@ -744,6 +776,8 @@ function Switcher({ onClose }: { onClose: () => void; }) {
                                     {describe(inst)}
                                 </div>
                             </div>
+
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginLeft: "auto", justifyContent: "flex-end" }}>
 
                             {!isCur && (
                                 <Button size={Button.Sizes.SMALL} onClick={() => switchTo(inst.id)}>
@@ -803,6 +837,7 @@ function Switcher({ onClose }: { onClose: () => void; }) {
                                     Remove
                                 </Button>
                             )}
+                            </div>
                         </div>
 
                         {draft?.id === inst.id && (
@@ -1104,7 +1139,7 @@ const settings = definePluginSettings({
         hidden: true,
         type: OptionType.STRING,
         description: "Address of the FossCORD/MeowCORD end-to-end encryption script (https only). It runs inside your client with access to your login, so only use a script you trust. Takes effect after a restart.",
-        default: "https://iambrdn.com/projects/switcher/e2ee.js"
+        default: "https://iambrdn.com/project/switcher/e2ee.js"
     },
     e2eeHash: {
         hidden: true,
@@ -1280,6 +1315,7 @@ const HOSTS = /(?<![\w.-])(discord\.gg|discord\.gift|discord\.new|discord\.com|d
 
 let textObserver: MutationObserver | null = null;
 let badge: HTMLElement | null = null;
+let gatewayState: "connecting" | "up" | "down" = "connecting";
 
 function replaceHosts(value: string, env: Env, host: string) {
     return value.replace(HOSTS, m => {
@@ -1349,6 +1385,16 @@ function startTextRewrite() {
     rewriteNode(document.body, env, host);
 }
 
+const BADGE_COLORS = { connecting: "var(--brand-500, #5865f2)", up: "#23a55a", down: "#f23f43" };
+const BADGE_TITLES = { connecting: "Connecting", up: "Connected", down: "Disconnected" };
+
+function setGatewayState(next: typeof gatewayState) {
+    gatewayState = next;
+    if (!badge) return;
+    badge.style.background = BADGE_COLORS[next];
+    badge.title = `${BADGE_TITLES[next]} · Instance switcher (Ctrl+Alt+I)`;
+}
+
 function mountBadge() {
     const inst = active();
     if (!inst.env || !settings.store.showBadge || badge || !document.body) return;
@@ -1374,6 +1420,7 @@ function mountBadge() {
     });
     badge.addEventListener("click", () => openSwitcher());
     document.body.appendChild(badge);
+    setGatewayState(gatewayState);
 }
 
 const VERIFIED_LABELS = new Set(["OFFICIAL", "AI"]);
@@ -1896,12 +1943,19 @@ export default definePlugin({
     flux: {
         CONNECTION_OPEN: (e: any) => {
             trace("CONNECTION_OPEN", e);
+            setGatewayState("up");
             spoofUser();
         },
         CURRENT_USER_UPDATE: () => spoofUser(),
         USER_UPDATE: () => spoofUser(),
-        CONNECTION_CLOSED: (e: any) => trace("CONNECTION_CLOSED", e),
-        CONNECTION_RESUMED: (e: any) => trace("CONNECTION_RESUMED", e),
+        CONNECTION_CLOSED: (e: any) => {
+            trace("CONNECTION_CLOSED", e);
+            setGatewayState("down");
+        },
+        CONNECTION_RESUMED: (e: any) => {
+            trace("CONNECTION_RESUMED", e);
+            setGatewayState("up");
+        },
         MESSAGE_CREATE: (e: any) => {
             trace("MESSAGE_CREATE", e);
             maybePing(e);
@@ -1913,6 +1967,7 @@ export default definePlugin({
 
     start() {
         finishSwap();
+        autoLaunch();
         log("active instance:", active().name);
         applyEnv(active().env);
         traceSockets();
