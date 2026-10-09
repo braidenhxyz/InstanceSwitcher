@@ -687,7 +687,7 @@ function Switcher({ onClose }: { onClose: () => void; }) {
                             border: `1px solid ${isCur ? C.brand : C.border}`
                         }}
                     >
-                        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
                             <div style={{ display: "flex", flexDirection: "column", flexShrink: 0 }}>
                                 <span
                                     role="button"
@@ -723,10 +723,21 @@ function Switcher({ onClose }: { onClose: () => void; }) {
                                     boxShadow: status ? `0 0 6px ${C.green}` : "none"
                                 }}
                             />
+                            <span
+                                role="button"
+                                title={inst.auto ? "Opens on launch. Click to turn off" : "Open this one when Discord starts"}
+                                onClick={() => {
+                                    setStartInstance(inst.auto ? null : inst.id);
+                                    refresh();
+                                }}
+                                style={{ cursor: "pointer", fontSize: 16, lineHeight: 1, color: inst.auto ? "#f0b232" : C.muted, userSelect: "none", flexShrink: 0 }}
+                            >
+                                {inst.auto ? "★" : "☆"}
+                            </span>
                             <InstanceIcon key={`${inst.id}:${inst.icon ?? ""}`} inst={inst} />
-                            <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ flex: "1 1 150px", minWidth: 0 }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600, color: C.header }}>
-                                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                    <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                         {inst.name}
                                     </span>
                                     {isCur && (
@@ -736,6 +747,7 @@ function Switcher({ onClose }: { onClose: () => void; }) {
                                                 fontWeight: 700,
                                                 padding: "2px 7px",
                                                 borderRadius: 999,
+                                                flexShrink: 0,
                                                 background: C.brand,
                                                 color: "#fff"
                                             }}
@@ -751,6 +763,7 @@ function Switcher({ onClose }: { onClose: () => void; }) {
                                                 fontWeight: 700,
                                                 padding: "2px 7px",
                                                 borderRadius: 999,
+                                                flexShrink: 0,
                                                 background: C.green,
                                                 color: "#fff"
                                             }}
@@ -764,16 +777,8 @@ function Switcher({ onClose }: { onClose: () => void; }) {
                                 </div>
                             </div>
 
-                            <Button
-                                size={Button.Sizes.SMALL}
-                                color={Button.Colors.PRIMARY}
-                                onClick={() => {
-                                    setStartInstance(inst.auto ? null : inst.id);
-                                    refresh();
-                                }}
-                            >
-                                {inst.auto ? "Starts here" : "Start here"}
-                            </Button>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginLeft: "auto", justifyContent: "flex-end" }}>
+
                             {!isCur && (
                                 <Button size={Button.Sizes.SMALL} onClick={() => switchTo(inst.id)}>
                                     Connect
@@ -832,6 +837,7 @@ function Switcher({ onClose }: { onClose: () => void; }) {
                                     Remove
                                 </Button>
                             )}
+                            </div>
                         </div>
 
                         {draft?.id === inst.id && (
