@@ -51,7 +51,7 @@ Connect your native Discord client to **Spacebar, FossCORD, MeowCORD**, and self
 
 ### 🔐 Native E2EE Integration
 
-- Built-in support for the **FossCORD/MeowCORD** `e2ee.js` script, so encrypted DMs decrypt natively inside the desktop app.
+- Support for the **FossCORD/MeowCORD** `e2ee.js` script, downloaded from a URL you control, so encrypted DMs decrypt natively inside the desktop app.
 
 ---
 
@@ -72,8 +72,7 @@ Clone or symlink this directory into your Vencord/Equicord `userplugins` folder:
 ```text
 src/userplugins/InstanceSwitcher/
 ├── index.tsx    # Main switcher UI & engine hooks
-├── native.ts    # Main-process CSP bypass helper
-└── e2ee.js      # Dynamic decryption loader
+└── native.ts    # Main-process CSP helper and script downloader
 ```
 
 ### 2. Build & inject
@@ -130,7 +129,7 @@ Click **Add Instance** and enter your server's base URL. Standard routes resolve
 
 ## 🔐 End-to-End Encryption (FossCORD / MeowCORD)
 
-Servers that use end-to-end encryption normally show `🔒 Encrypted message` on standard clients. Enabling the **FossCORD/MeowCORD** toggle on an instance loads the `e2ee.js` layer directly into the client.
+Servers that use end-to-end encryption normally show `🔒 Encrypted message` on standard clients. Enabling the **FossCORD/MeowCORD** toggle on an instance downloads the `e2ee.js` layer from the address in the `e2eeUrl` setting and loads it into the client. Nothing is downloaded for instances with the toggle off.
 
 **What you get:**
 
@@ -142,7 +141,10 @@ Servers that use end-to-end encryption normally show `🔒 Encrypted message` on
 > [!NOTE]
 > - **Device registration:** The desktop app registers as its own crypto device on your server account.
 > - **Attachments:** Encrypted file attachments need a web-worker scope that only exists in the server's official web client, so they're skipped.
-> - **Build safety:** The bundled `e2ee.js` is patched to remove Node-native `import("crypto")` calls for Webpack compatibility. Keep the file named exactly `e2ee.js`.
+> - **Hosted, not bundled:** `e2ee.js` is no longer part of the plugin. Host it yourself and point `e2eeUrl` at it. The download happens in the main process through `native.ts`, so your host needs no CORS headers.
+> - **Which copy to host:** the modified one, with the Node-only `import("crypto")` fallback in `loadSubtleCrypto` replaced by `throw new NotSupportedError("Web Crypto is not available");`. In a browser it behaves the same as the original.
+> - **If the script isn't live yet:** the plugin shows an error toast, and everything else keeps working.
+> - **Trust:** the script runs inside your client with access to your login. Only host it somewhere you control, and pin it with `e2eeHash`.
 
 ### Diagnostics
 
@@ -174,6 +176,8 @@ Options scoped to **Clones Only** automatically disengage while connected to off
 | `pollOtherChannels` | `on` | Experimental | Background-polls unread channels to keep notifications accurate. |
 | `syncEdits` | `on` | Experimental | Captures edits/deletes missed during connection drops. |
 | `autoReconnect` | `on` | Experimental | Resets the gateway socket automatically when message drift is detected. |
+| `e2eeUrl` | `https://iambrdn.com/project/switcher/e2ee.js` | Encryption | https address the E2EE script is downloaded from, only for instances with the FossCORD/MeowCORD toggle on. |
+| `e2eeHash` | empty | Encryption | Optional SHA-256 (hex) of the script. When set, a script that doesn't match is refused. |
 | `sendCookies` | `off` | Network | Forwards cookies with API requests (requires CORS support on the server). |
 | `debugFlux` | `off` | Developer | Logs verbose gateway/socket diagnostics to the console under `[InstanceSwitcher]`. |
 
@@ -186,8 +190,8 @@ Options scoped to **Clones Only** automatically disengage while connected to off
 | File | Responsibility |
 | --- | --- |
 | `index.tsx` | State persistence, UI rendering, local account key swapping, and DOM text rewriting. |
-| `native.ts` | Talks to the Electron main process to allow WebSocket origins outside the standard CSP. |
-| `e2ee.js` | Self-contained crypto engine that hooks the client's HTTP dispatchers to encrypt/decrypt message bodies transparently. |
+| `native.ts` | Talks to the Electron main process to allow WebSocket origins outside the standard CSP, and downloads the E2EE script over https. |
+| `e2ee.js` *(hosted, not in this repo)* | Self-contained crypto engine that hooks the client's HTTP dispatchers to encrypt/decrypt message bodies transparently. Downloaded from `e2eeUrl` at runtime. |
 
 ---
 
@@ -199,6 +203,7 @@ Options scoped to **Clones Only** automatically disengage while connected to off
 | Console: `CSP blocked` | Gateway WebSocket origin not approved | Click **Connect** again to trigger the approval dialog, or check network permissions. |
 | `WebSocket Connection Failed` | Wrong gateway URL pattern | Make sure the server serves the gateway at `/gateway` (e.g. `wss://host/gateway`), not the root. |
 | Requests blocked by CORS | Missing `Access-Control-*` headers | Configure the backend to allow the `https://discord.com` origin. |
+| `Couldn't start end-to-end encryption` toast | `e2eeUrl` isn't live yet, isn't https, or the file doesn't match `e2eeHash`. |
 | Client crashes or reloads unexpectedly | Unstable experimental features | Turn the `experimental` setting off. |
 
 ---
