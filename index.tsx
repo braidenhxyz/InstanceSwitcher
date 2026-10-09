@@ -1847,6 +1847,117 @@ function updateDecryptedMessage(channelId: string, id: string, patch: { content:
     } as any);
 }
 
+const FILE_PREFIX = "/e2ee/attachments/";
+const FILE_CHUNK = 64 * 1024;
+const MAX_FILE_BYTES = 80 * 1024 * 1024;
+const fileUrls = new Map<string, Promise<string>>();
+const fileJobs = new Set<string>();
+
+function fromB64u(text: string): Uint8Array {
+    const binary = atob(text.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(text.length / 4) * 4, "="));
+    const out = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+    return out;
+}
+
+async function decryptToBlobUrl(entry: any): Promise<string> {
+    const res = await fetch(entry.url);
+    if (!res.ok) throw new Error(`download answered ${res.status}`);
+    const cipher = new Uint8Array(await res.arrayBuffer());
+    if (cipher.length > MAX_FILE_BYTES) throw new Error("file is too large to decrypt in the client");
+    const key = await crypto.subtle.importKey("raw", fromB64u(entry.key), { name: "AES-GCM" }, false, ["decrypt"]);
+    const iv = fromB64u(entry.iv);
+    const step = FILE_CHUNK + 16;
+    const count = Math.max(1, Math.ceil(cipher.length / step));
+    const parts: ArrayBuffer[] = [];
+    for (let i = 0; i < count; i++) {
+        const nonce = iv.slice();
+        const view = new DataView(nonce.buffer);
+        view.setUint32(8, (view.getUint32(8) ^ i) >>> 0);
+        const aad = new TextEncoder().encode(`fosscord-e2ee/v1/file\n${i}\n${i === count - 1 ? 1 : 0}`);
+        parts.push(await crypto.subtle.decrypt({ name: "AES-GCM", iv: nonce, additionalData: aad }, key, cipher.subarray(i * step, (i + 1) * step)));
+    }
+    return URL.createObjectURL(new Blob(parts, { type: entry.content_type || "application/octet-stream" }));
+}
+
+const looksEncrypted = (a: any) => /^[a-z0-9]+\.bin$/i.test(String(a?.filename ?? "")) || String(a?.url ?? "").includes(FILE_PREFIX);
+
+async function resolveAttachments(channelId: string, id: string, attempt = 0) {
+    const jobKey = `${channelId}:${id}`;
+    if (attempt === 0) {
+        if (fileJobs.has(jobKey)) return;
+        fileJobs.add(jobKey);
+    }
+    try {
+        const lookup = (window as any).__fosscordE2ee?.fileFor;
+        const msg: any = MessageStore.getMessage(channelId, id);
+        if (!msg) {
+            if (attempt < 20) setTimeout(() => resolveAttachments(channelId, id, attempt + 1), 300);
+            else fileJobs.delete(jobKey);
+            return;
+        }
+        const list: any[] = msg.attachments ?? [];
+        const prefix = `${location.origin}${FILE_PREFIX}`;
+        const pending = list.filter(a => typeof a?.url === "string" && a.url.startsWith(prefix));
+
+        if (!pending.length) {
+            if (list.some(looksEncrypted) && attempt < 20) setTimeout(() => resolveAttachments(channelId, id, attempt + 1), 500);
+            else fileJobs.delete(jobKey);
+            return;
+        }
+        if (typeof lookup !== "function") {
+            if (attempt < 30) {
+                setTimeout(() => resolveAttachments(channelId, id, attempt + 1), 1000);
+                return;
+            }
+            console.warn("[InstanceSwitcher] the loaded encryption script has no fileFor, so attachments can't be opened. See the 'loaded e2ee.js' line for which file was downloaded.");
+            fileJobs.delete(jobKey);
+            return;
+        }
+
+        const next = await Promise.all(list.map(async a => {
+            if (!pending.includes(a)) return a;
+            const path = new URL(a.url).pathname;
+            const entry = lookup(path);
+            if (!entry) return a;
+            let task = fileUrls.get(path);
+            if (!task) {
+                task = decryptToBlobUrl(entry);
+                fileUrls.set(path, task);
+                task.catch(() => fileUrls.delete(path));
+            }
+            try {
+                const blob = await task;
+                return { ...a, url: blob, proxy_url: blob };
+            } catch (e) {
+                console.warn("[InstanceSwitcher] couldn't decrypt an attachment", e);
+                return a;
+            }
+        }));
+
+        if (next.some((a, i) => a !== list[i])) {
+            FluxDispatcher.dispatch({
+                type: "MESSAGE_UPDATE",
+                message: { id, channel_id: channelId, guild_id: (msg as any).guild_id, attachments: next },
+                e2eeLocal: true
+            } as any);
+        }
+        if (next.some(a => typeof a?.url === "string" && a.url.startsWith(prefix)) && attempt < 20) {
+            setTimeout(() => resolveAttachments(channelId, id, attempt + 1), 500);
+        } else fileJobs.delete(jobKey);
+    } catch (e) {
+        console.warn("[InstanceSwitcher] attachment handling failed", e);
+        fileJobs.delete(jobKey);
+    }
+}
+
+function handleAttachments(messages: any[] | undefined) {
+    if (!active().foss || !Array.isArray(messages)) return;
+    for (const m of messages) {
+        if (m?.id && m?.channel_id && Array.isArray(m.attachments) && m.attachments.length) resolveAttachments(m.channel_id, m.id);
+    }
+}
+
 async function loadE2ee(req: any) {
     const holder: any = ((window as any).__fosscordE2ee ??= { reqs: [] });
     holder.reqs = [req];
@@ -1858,21 +1969,69 @@ async function loadE2ee(req: any) {
     const res = await native.fetchScript(url);
     if (!res.ok || typeof res.text !== "string") throw new Error(res.error || "download failed");
     const want = (settings.store.e2eeHash || "").trim().toLowerCase();
-    if (want) {
-        const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(res.text));
-        const got = [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, "0")).join("");
-        if (got !== want) throw new Error("the script does not match the pinned hash, refusing to run it");
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(res.text));
+    const got = [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, "0")).join("");
+    if (want && got !== want) throw new Error("the script does not match the pinned hash, refusing to run it");
+    log("downloaded e2ee.js", res.text.length, "characters, sha256", got, "has fileFor:", res.text.includes("loader.fileFor"));
+    let code = res.text;
+    if (!code.includes("loader.fileFor")) {
+        const a = "return { start: start2, ready: () => controlled, prepareCreate,";
+        const b = "loader.openSettings = () => ui.showSettings();";
+        if (code.includes(a) && code.includes(b)) {
+            code = code.replace(a, "return { start: start2, ready: () => controlled, lookup: path => registry.get(path), prepareCreate,");
+            code = code.replace(b, b + "\n  loader.fileFor = (path) => attachments.lookup(path);");
+            log("added the attachment lookup to the downloaded e2ee.js");
+        } else {
+            console.warn("[InstanceSwitcher] couldn't add the attachment lookup to this e2ee.js");
+        }
     }
     await withStorageShim(async () => {
-        (0, eval)(res.text + "\n//# sourceURL=" + url);
+        (0, eval)(code + "\n//# sourceURL=" + url);
     });
     log("end-to-end encryption module loaded from", url);
+}
+
+const undoBlobFix: (() => void)[] = [];
+
+function stripBlobQuery(value: unknown) {
+    if (typeof value !== "string" || !value.startsWith("blob:")) return value;
+    const i = value.indexOf("?");
+    return i === -1 ? value : value.slice(0, i);
+}
+
+function installBlobQueryFix() {
+    if (undoBlobFix.length) return;
+    for (const proto of [HTMLImageElement.prototype, HTMLMediaElement.prototype, HTMLSourceElement.prototype] as any[]) {
+        const desc = Object.getOwnPropertyDescriptor(proto, "src");
+        if (!desc?.set || !desc.get) continue;
+        Object.defineProperty(proto, "src", {
+            configurable: true,
+            enumerable: desc.enumerable,
+            get: desc.get,
+            set(value: unknown) {
+                desc.set!.call(this, stripBlobQuery(value));
+            }
+        });
+        undoBlobFix.push(() => Object.defineProperty(proto, "src", desc));
+    }
+    const setAttribute = Element.prototype.setAttribute;
+    Element.prototype.setAttribute = function (name: string, value: string) {
+        return setAttribute.call(this, name, name === "src" ? (stripBlobQuery(value) as string) : value);
+    };
+    undoBlobFix.push(() => {
+        Element.prototype.setAttribute = setAttribute;
+    });
+}
+
+function removeBlobQueryFix() {
+    undoBlobFix.splice(0).forEach(fn => fn());
 }
 
 function startE2ee() {
     const inst = active();
     if (e2eeStarted || !inst.env || !inst.foss) return;
     e2eeStarted = true;
+    installBlobQueryFix();
     log("FossCORD/MeowCORD server: starting end-to-end encryption support");
 
     const attempt = () => {
@@ -1887,6 +2046,7 @@ function startE2ee() {
 }
 
 function stopE2ee() {
+    removeBlobQueryFix();
     if (e2eeTimer) window.clearTimeout(e2eeTimer);
     e2eeTimer = undefined;
 }
@@ -1959,9 +2119,16 @@ export default definePlugin({
         MESSAGE_CREATE: (e: any) => {
             trace("MESSAGE_CREATE", e);
             maybePing(e);
+            handleAttachments(e?.message ? [e.message] : []);
         },
         TYPING_START: (e: any) => trace("TYPING_START", e),
-        LOAD_MESSAGES_SUCCESS: (e: any) => trace("LOAD_MESSAGES_SUCCESS", e),
+        LOAD_MESSAGES_SUCCESS: (e: any) => {
+            trace("LOAD_MESSAGES_SUCCESS", e);
+            handleAttachments(e?.messages);
+        },
+        MESSAGE_UPDATE: (e: any) => {
+            if (!e?.e2eeLocal) handleAttachments(e?.message ? [e.message] : []);
+        },
         LOAD_MESSAGES_FAILURE: (e: any) => trace("LOAD_MESSAGES_FAILURE", e)
     } as any,
 
