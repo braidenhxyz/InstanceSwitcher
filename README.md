@@ -176,7 +176,7 @@ Options scoped to **Clones Only** automatically disengage while connected to off
 | `pollOtherChannels` | `on` | Experimental | Background-polls unread channels to keep notifications accurate. |
 | `syncEdits` | `on` | Experimental | Captures edits/deletes missed during connection drops. |
 | `autoReconnect` | `on` | Experimental | Resets the gateway socket automatically when message drift is detected. |
-| `e2eeUrl` | `https://iambrdn.com/project/switcher/e2ee.js` | Encryption | https address the E2EE script is downloaded from, only for instances with the FossCORD/MeowCORD toggle on. |
+| `e2eeUrl` | `https://iambrdn.com/projects/switcher/e2ee.js` | Encryption | https address the E2EE script is downloaded from, only for instances with the FossCORD/MeowCORD toggle on. |
 | `e2eeHash` | empty | Encryption | Optional SHA-256 (hex) of the script. When set, a script that doesn't match is refused. |
 | `sendCookies` | `off` | Network | Forwards cookies with API requests (requires CORS support on the server). |
 | `debugFlux` | `off` | Developer | Logs verbose gateway/socket diagnostics to the console under `[InstanceSwitcher]`. |
