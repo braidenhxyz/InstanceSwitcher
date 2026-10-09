@@ -40,7 +40,7 @@ Connect your native Discord client to **Spacebar, FossCORD, MeowCORD**, and self
 - **Isolated Account Vaults** — Every instance keeps its own login state, multi-account switcher list, and session tokens.
 - **Smart Endpoint Templating** — Enter a base domain (`https://my.server`) and the engine derives `/api`, `/gateway`, and CDN paths automatically.
 - **Context Badge** — A floating badge shows your active host so you never mistake a test server for live Discord. It turns green when the connection is healthy and red when it drops.
-- **Start on Launch** — Press **Start here** on any instance (including Discord) to have the app open on it every time.
+- **Start on Launch** — Click the star on any instance (including Discord) to have the app open on it every time.
 - **Panic Fail-Safe** — Press `Ctrl+Alt+Shift+D` anywhere to force-revert to official Discord if a server stalls.
 
 ### 🎭 Discord Native Parity
