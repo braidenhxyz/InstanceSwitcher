@@ -1139,7 +1139,7 @@ const settings = definePluginSettings({
         hidden: true,
         type: OptionType.STRING,
         description: "Address of the FossCORD/MeowCORD end-to-end encryption script (https only). It runs inside your client with access to your login, so only use a script you trust. Takes effect after a restart.",
-        default: "https://iambrdn.com/project/switcher/e2ee.js"
+        default: "https://iambrdn.com/projects/switcher/e2ee.js"
     },
     e2eeHash: {
         hidden: true,
