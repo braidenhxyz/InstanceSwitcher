@@ -1,0 +1,27 @@
+name: Greetings
+
+on: [pull_request_target, issues]
+
+jobs:
+  greeting:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/first-interaction@v3.1.0
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          issue_message: |
+            Thanks for opening your first issue on InstanceSwitcher!
+
+            To help me look into it, please make sure you filled in the template, including the server software, your Discord build, and the console output.
+
+            **Please remove secrets before posting.** Never share your login token, `Authorization` or `Cookie` values, passwords, or key backup data in logs or screenshots. If you pasted any of these by accident, edit your issue to remove them and log out of that instance.
+          pr_message: |
+            Thanks for your first pull request to InstanceSwitcher!
+
+            A few things that help it get merged:
+            - Use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) for your commit messages, for example `fix(poll): stop duplicate messages`.
+            - Keep `index.tsx` and `native.ts` free of comments.
+            - Describe which server software you tested against, and whether real Discord still works.
