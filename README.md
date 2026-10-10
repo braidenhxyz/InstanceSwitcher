@@ -50,6 +50,10 @@ Connect your native Discord client to **Spacebar, FossCORD, MeowCORD**, and self
 - **Public Flag Rendering** — Renders custom user badges like `OFFICIAL` and `AI` in member lists and chat.
 - **Missed-Message Healing** — REST polling catches gateway packets dropped during server hiccups or socket reconnects.
 
+### 🎙️ Voice
+
+- **Web Voice Engine** — Optional WebRTC voice for servers that Discord's native voice engine can't reach (no more `No Route`). See Voice Channels below.
+
 ### 🔐 Native E2EE Integration
 
 - Support for the **FossCORD/MeowCORD** `e2ee.js` script, downloaded from a URL you control, so encrypted DMs decrypt natively inside the desktop app.
@@ -141,7 +145,7 @@ Servers that use end-to-end encryption normally show `🔒 Encrypted message` on
 
 > [!NOTE]
 > - **Device registration:** The desktop app registers as its own crypto device on your server account.
-> - **Attachments:** Encrypted file attachments need a web-worker scope that only exists in the server's official web client, so they're skipped.
+> - **Attachments:** Encrypted attachments are downloaded and decrypted inside the client and shown from a local address (files over about 80 MB are skipped). This needs the current hosted `e2ee.js`.
 > - **Hosted, not bundled:** `e2ee.js` is no longer part of the plugin. Host it yourself and point `e2eeUrl` at it. The download happens in the main process through `native.ts`, so your host needs no CORS headers.
 > - **Which copy to host:** the modified one, with the Node-only `import("crypto")` fallback in `loadSubtleCrypto` replaced by `throw new NotSupportedError("Web Crypto is not available");`. In a browser it behaves the same as the original.
 > - **If the script isn't live yet:** the plugin shows an error toast, and everything else keeps working.
@@ -154,6 +158,26 @@ If encrypted channels fail to resolve, check the engine state in DevTools (`Ctrl
 ```js
 __fosscordE2ee.status()
 ```
+
+---
+
+## 🎙️ Voice Channels
+
+The desktop client's native voice engine only works with Discord's own voice servers, so joining a channel on a WebRTC-based server shows **No Route**.
+
+Turn on **`webVoice`** (Advanced, in the plugin settings) and restart Discord. On a non-Discord instance the client then:
+
+- Uses Discord's **web voice engine (WebRTC)**, the same one the browser version uses.
+- Stays connected to servers that don't use Discord's voice encryption (DAVE) instead of dropping with `Refusing DAVE protocol downgrade`.
+- Hides the *"Your Discord installation is corrupt"* banner that switching engines would otherwise cause.
+
+On real Discord nothing changes.
+
+> [!WARNING]
+> - Voice on such a server is **not end-to-end encrypted**. Only use this on servers you run or trust.
+> - Native-only voice features, such as noise suppression, aren't available.
+> - The server must be reachable for media too. If you host it, set its public IP and open the media port (e.g. `WRTC_PUBLIC_IP` and `WRTC_PORT` in its `.env`).
+> - With `debugFlux` on, `[InstanceSwitcher] voice server` / `voice state` console lines show where a call stops.
 
 ---
 
@@ -179,6 +203,7 @@ Options scoped to **Clones Only** automatically disengage while connected to off
 | `autoReconnect` | `on` | Experimental | Resets the gateway socket automatically when message drift is detected. |
 | `e2eeUrl` | `https://iambrdn.com/project/switcher/e2ee.js` | Encryption | https address the E2EE script is downloaded from, only for instances with the FossCORD/MeowCORD toggle on. |
 | `e2eeHash` | empty | Encryption | Optional SHA-256 (hex) of the script. When set, a script that doesn't match is refused. |
+| `webVoice` | `off` | Voice | Experimental. Uses the web (WebRTC) voice engine on clones and allows servers without DAVE encryption. Needs a restart. |
 | `sendCookies` | `off` | Network | Forwards cookies with API requests (requires CORS support on the server). |
 | `debugFlux` | `off` | Developer | Logs verbose gateway/socket diagnostics to the console under `[InstanceSwitcher]`. |
 
@@ -204,6 +229,8 @@ Options scoped to **Clones Only** automatically disengage while connected to off
 | Console: `CSP blocked` | Gateway WebSocket origin not approved | Click **Connect** again to trigger the approval dialog, or check network permissions. |
 | `WebSocket Connection Failed` | Wrong gateway URL pattern | Make sure the server serves the gateway at `/gateway` (e.g. `wss://host/gateway`), not the root. |
 | Requests blocked by CORS | Missing `Access-Control-*` headers | Configure the backend to allow the `https://discord.com` origin. |
+| Voice says `No Route` | Native voice engine can't reach a non-Discord server | Turn on `webVoice` and restart. |
+| Voice drops with `Refusing DAVE protocol downgrade` | `webVoice` is off | Turn it on and restart. |
 | `Couldn't start end-to-end encryption` toast | `e2eeUrl` isn't live yet, isn't https, or the file doesn't match `e2eeHash`. |
 | Client crashes or reloads unexpectedly | Unstable experimental features | Turn the `experimental` setting off. |
 
