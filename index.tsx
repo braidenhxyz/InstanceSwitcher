@@ -1084,6 +1084,7 @@ function SettingsPanel() {
                     )}
                     {flag("spoofPhone", "Also report a phone number", "For the highest verification level")}
                     {flag("sendCookies", "Send cookies to the server", "Can stop the client loading if the server's CORS is strict")}
+                    {flag("webVoice", "Use the web voice engine on other servers", "For servers with WebRTC voice and no DAVE encryption. Restart needed")}
                     {flag("debugFlux", "Log connection details to the console", "Helps diagnose missing messages")}
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                         <span style={{ fontSize: 13, fontWeight: 600, color: C.header }}>Tag mapping</span>
@@ -1200,6 +1201,12 @@ const settings = definePluginSettings({
         type: OptionType.NUMBER,
         description: "How often to check for missed messages, in seconds (minimum 3).",
         default: 8
+    },
+    webVoice: {
+        hidden: true,
+        type: OptionType.BOOLEAN,
+        description: "On non-Discord instances only: use Discord's web voice engine (WebRTC) instead of the desktop one, and accept servers that do not use Discord's voice encryption (DAVE), for servers whose voice only speaks WebRTC. Experimental. Takes effect after a restart.",
+        default: false
     },
     debugFlux: {
         hidden: true,
@@ -2051,6 +2058,50 @@ function stopE2ee() {
     e2eeTimer = undefined;
 }
 
+function webVoiceOn() {
+    try {
+        return settings.store.webVoice === true && !!active().env;
+    } catch {
+        return false;
+    }
+}
+
+let bannerObserver: MutationObserver | null = null;
+let bannerTimer: number | undefined;
+
+function hideCorruptBanner() {
+    bannerTimer = undefined;
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let hit: HTMLElement | null = null;
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        if (n.nodeValue?.includes("installation is corrupt")) {
+            hit = n.parentElement;
+            break;
+        }
+    }
+    if (!hit) return;
+    let el: HTMLElement | null = hit;
+    while (el && el !== document.body && !/notice/i.test(el.className?.toString() ?? "")) el = el.parentElement;
+    const target = el && el !== document.body ? el : hit.parentElement;
+    if (target) target.style.display = "none";
+}
+
+function startBannerHider() {
+    if (bannerObserver || !document.body) return;
+    bannerObserver = new MutationObserver(() => {
+        if (bannerTimer || !webVoiceOn()) return;
+        bannerTimer = window.setTimeout(hideCorruptBanner, 150);
+    });
+    bannerObserver.observe(document.body, { childList: true, subtree: true });
+}
+
+function stopBannerHider() {
+    bannerObserver?.disconnect();
+    bannerObserver = null;
+    if (bannerTimer) window.clearTimeout(bannerTimer);
+    bannerTimer = undefined;
+}
+
 function onReady(fn: () => void) {
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", fn, { once: true });
     else fn();
@@ -2100,6 +2151,27 @@ export default definePlugin({
 
     startAt: StartAt.Init,
 
+    patches: [
+        {
+            find: "Refusing DAVE protocol downgrade",
+            replacement: {
+                match: /_maybeRefuseDaveDowngrade\((\i),(\i),(\i)\)\{if\(0!==\i\)return!1;/,
+                replace: "_maybeRefuseDaveDowngrade($1,$2,$3){if(0!==$2||$self.useWebVoice())return!1;"
+            }
+        },
+        {
+            find: "injectMediaEngine",
+            replacement: {
+                match: /supported\(\)\{try\{if\(__OVERLAY__\);else if\(/,
+                replace: "supported(){try{if($self.useWebVoice())return!1;if(__OVERLAY__);else if("
+            }
+        }
+    ],
+
+    useWebVoice() {
+        return webVoiceOn();
+    },
+
     flux: {
         CONNECTION_OPEN: (e: any) => {
             trace("CONNECTION_OPEN", e);
@@ -2111,6 +2183,13 @@ export default definePlugin({
         CONNECTION_CLOSED: (e: any) => {
             trace("CONNECTION_CLOSED", e);
             setGatewayState("down");
+        },
+        VOICE_SERVER_UPDATE: (e: any) => {
+            if (active().env) log("voice server", e?.endpoint ?? "(none)");
+        },
+        RTC_CONNECTION_STATE: (e: any) => {
+            if (!active().env) return;
+            log("voice state", e?.state, e?.hostname ?? "", e?.port ?? "", e?.reason ?? e?.context ?? "");
         },
         CONNECTION_RESUMED: (e: any) => {
             trace("CONNECTION_RESUMED", e);
@@ -2156,6 +2235,7 @@ export default definePlugin({
             startTextRewrite();
             mountBadge();
             startE2ee();
+            startBannerHider();
         });
 
         if (active().env) setTimeout(dumpEnv, 4000);
@@ -2185,6 +2265,7 @@ export default definePlugin({
         removeMemberListDecorator("InstanceSwitcher");
         stopPolling();
         stopE2ee();
+        stopBannerHider();
         unprefixNotifications();
         disableCredentials();
         if (profileBadgeAdded) {
