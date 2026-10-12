@@ -104,7 +104,7 @@ const active = () => state.instances.find(i => i.id === state.activeId) ?? state
 
 const UNREAD_KEY = "InstanceSwitcher:unread";
 
-type UnreadMap = Record<string, { n: number; t: number; me?: string; seen?: Record<string, string> }>;
+type UnreadMap = Record<string, { n: number; t: number; me?: string; base?: Record<string, { c: number; l: string }> }>;
 
 function readUnread(): UnreadMap {
     try {
@@ -1461,12 +1461,14 @@ function paintBadge() {
 
 let unreadTimer: number | undefined;
 
-function seenSnapshot(): Record<string, string> {
-    const out: Record<string, string> = {};
+function baseSnapshot(): Record<string, { c: number; l: string }> {
+    const out: Record<string, { c: number; l: string }> = {};
     try {
+        const rs: any = ReadStateStore;
         for (const ch of (ChannelStore as any).getSortedPrivateChannels?.() ?? []) {
-            const ack = (ReadStateStore as any).ackMessageId?.(ch.id);
-            if (ack) out[ch.id] = String(ack);
+            const last = rs.lastMessageId?.(ch.id) ?? ch.lastMessageId;
+            if (!last) continue;
+            out[ch.id] = { c: Number(rs.getMentionCount?.(ch.id) ?? 0) || 0, l: String(last) };
         }
     } catch {
         return out;
@@ -1483,10 +1485,10 @@ function refreshUnread() {
             if (!me) return;
             const all = readUnread();
             const n = countUnread();
-            const seen = seenSnapshot();
+            const base = baseSnapshot();
             const prev = all[state.activeId];
-            if (prev?.n === n && prev?.me === me && JSON.stringify(prev?.seen ?? {}) === JSON.stringify(seen)) return;
-            all[state.activeId] = { n, t: Date.now(), me, seen };
+            if (prev?.n === n && prev?.me === me && JSON.stringify(prev?.base ?? {}) === JSON.stringify(base)) return;
+            all[state.activeId] = { n, t: Date.now(), me, base };
             LS?.setItem(UNREAD_KEY, JSON.stringify(all));
             paintBadge();
         } catch {
@@ -1519,23 +1521,31 @@ async function checkInstanceUnread(inst: Instance): Promise<void> {
         const who = await native.fetchJson(`${base}/users/@me`, token);
         if (!who.ok || typeof who.data?.id !== "string") return;
         const all = readUnread();
-        all[inst.id] = { n: all[inst.id]?.n ?? 0, t: all[inst.id]?.t ?? Date.now(), me: who.data.id, seen: all[inst.id]?.seen ?? {} };
+        all[inst.id] = { n: all[inst.id]?.n ?? 0, t: all[inst.id]?.t ?? Date.now(), me: who.data.id, base: all[inst.id]?.base ?? {} };
         LS?.setItem(UNREAD_KEY, JSON.stringify(all));
         entry = all[inst.id];
     }
     const list = await native.fetchJson(`${base}/users/@me/channels`, token);
     if (!list.ok || !Array.isArray(list.data)) return;
     const fallback = snowflakeAt(entry.t);
+    const known = entry.base ?? {};
     let total = 0;
+    const seenIds = new Set<string>();
     for (const ch of list.data.slice(0, 60)) {
-        const last: string | undefined = ch?.last_message_id;
-        if (!ch?.id || !last) continue;
-        const from = entry.seen?.[ch.id] ?? fallback;
-        if (snowflakeCompare(last, from) <= 0) continue;
-        const msgs = await native.fetchJson(`${base}/channels/${ch.id}/messages?after=${from}&limit=100`, token);
-        if (!msgs.ok || !Array.isArray(msgs.data)) continue;
-        total += msgs.data.filter((m: any) => m?.author?.id && m.author.id !== entry.me).length;
+        if (!ch?.id) continue;
+        seenIds.add(ch.id);
+        const from = known[ch.id]?.l ?? fallback;
+        const last: string | undefined = ch.last_message_id;
+        let fresh = 0;
+        if (!last || snowflakeCompare(last, from) > 0) {
+            const msgs = await native.fetchJson(`${base}/channels/${ch.id}/messages?after=${from}&limit=100`, token);
+            if (msgs.ok && Array.isArray(msgs.data)) {
+                fresh = msgs.data.filter((m: any) => m?.author?.id && m.author.id !== entry.me).length;
+            }
+        }
+        total += (known[ch.id]?.c ?? 0) + fresh;
     }
+    for (const [id, v] of Object.entries(known)) if (!seenIds.has(id)) total += v.c;
     const all = readUnread();
     if (!all[inst.id] || all[inst.id].n === total) return;
     all[inst.id] = { ...all[inst.id], n: total };
