@@ -1479,10 +1479,11 @@ function refreshUnread() {
     unreadTimer = window.setTimeout(() => {
         unreadTimer = undefined;
         try {
+            const me = (UserStore as any).getCurrentUser?.()?.id;
+            if (!me) return;
             const all = readUnread();
             const n = countUnread();
             const seen = seenSnapshot();
-            const me = (UserStore as any).getCurrentUser?.()?.id;
             const prev = all[state.activeId];
             if (prev?.n === n && prev?.me === me && JSON.stringify(prev?.seen ?? {}) === JSON.stringify(seen)) return;
             all[state.activeId] = { n, t: Date.now(), me, seen };
@@ -1510,10 +1511,18 @@ function savedToken(inst: Instance): string | null {
 async function checkInstanceUnread(inst: Instance): Promise<void> {
     const api = inst.env?.API_ENDPOINT;
     const token = savedToken(inst);
-    const entry = readUnread()[inst.id];
     const native = nativeApi();
-    if (!api || !token || !entry?.me || !native) return;
+    if (!api || !token || !native) return;
     const base = (api.startsWith("//") ? `https:${api}` : api) + "/v9";
+    let entry = readUnread()[inst.id];
+    if (!entry?.me) {
+        const who = await native.fetchJson(`${base}/users/@me`, token);
+        if (!who.ok || typeof who.data?.id !== "string") return;
+        const all = readUnread();
+        all[inst.id] = { n: all[inst.id]?.n ?? 0, t: all[inst.id]?.t ?? Date.now(), me: who.data.id, seen: all[inst.id]?.seen ?? {} };
+        LS?.setItem(UNREAD_KEY, JSON.stringify(all));
+        entry = all[inst.id];
+    }
     const list = await native.fetchJson(`${base}/users/@me/channels`, token);
     if (!list.ok || !Array.isArray(list.data)) return;
     const fallback = snowflakeAt(entry.t);
