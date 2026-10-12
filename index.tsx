@@ -104,7 +104,7 @@ const active = () => state.instances.find(i => i.id === state.activeId) ?? state
 
 const UNREAD_KEY = "InstanceSwitcher:unread";
 
-type UnreadMap = Record<string, { n: number; t: number }>;
+type UnreadMap = Record<string, { n: number; t: number; me?: string; seen?: Record<string, string> }>;
 
 function readUnread(): UnreadMap {
     try {
@@ -341,6 +341,7 @@ type CspApi = {
 type NativeApi = {
     allowGateways(origins: string[]): Promise<{ added: boolean; all: string[] }>;
     fetchScript(url: string): Promise<{ ok: boolean; text?: string; error?: string }>;
+    fetchJson(url: string, token: string): Promise<{ ok: boolean; data?: any; status?: number; error?: string }>;
 };
 
 const cspApi = (): CspApi | undefined => (window as any).VencordNative?.csp;
@@ -641,6 +642,9 @@ function Switcher({ onClose }: { onClose: () => void; }) {
 
     React.useEffect(() => {
         state.instances.forEach(check);
+        checkOtherInstances();
+        window.addEventListener("instanceswitcher:unread", refresh);
+        return () => window.removeEventListener("instanceswitcher:unread", refresh);
     }, []);
 
     const cur = active();
@@ -1194,7 +1198,7 @@ const settings = definePluginSettings({
         hidden: true,
         type: OptionType.STRING,
         description: "Address of the FossCORD/MeowCORD end-to-end encryption script (https only). It runs inside your client with access to your login, so only use a script you trust. Takes effect after a restart.",
-        default: "https://iambrdn.com/projects/switcher/e2ee.js"
+        default: "https://iambrdn.com/project/switcher/e2ee.js"
     },
     e2eeHash: {
         hidden: true,
@@ -1457,6 +1461,19 @@ function paintBadge() {
 
 let unreadTimer: number | undefined;
 
+function seenSnapshot(): Record<string, string> {
+    const out: Record<string, string> = {};
+    try {
+        for (const ch of (ChannelStore as any).getSortedPrivateChannels?.() ?? []) {
+            const ack = (ReadStateStore as any).ackMessageId?.(ch.id);
+            if (ack) out[ch.id] = String(ack);
+        }
+    } catch {
+        return out;
+    }
+    return out;
+}
+
 function refreshUnread() {
     if (unreadTimer) return;
     unreadTimer = window.setTimeout(() => {
@@ -1464,14 +1481,88 @@ function refreshUnread() {
         try {
             const all = readUnread();
             const n = countUnread();
-            if (all[state.activeId]?.n === n) return;
-            all[state.activeId] = { n, t: Date.now() };
+            const seen = seenSnapshot();
+            const me = (UserStore as any).getCurrentUser?.()?.id;
+            const prev = all[state.activeId];
+            if (prev?.n === n && prev?.me === me && JSON.stringify(prev?.seen ?? {}) === JSON.stringify(seen)) return;
+            all[state.activeId] = { n, t: Date.now(), me, seen };
             LS?.setItem(UNREAD_KEY, JSON.stringify(all));
             paintBadge();
         } catch {
             return;
         }
     }, 400);
+}
+
+const DISCORD_EPOCH = 1420070400000n;
+const snowflakeAt = (ms: number) => String((BigInt(ms) - DISCORD_EPOCH) << 22n);
+
+function savedToken(inst: Instance): string | null {
+    try {
+        const raw = inst.store?.token ?? legacyStore(inst).token;
+        const v = raw ? JSON.parse(raw) : null;
+        return typeof v === "string" && v ? v : null;
+    } catch {
+        return null;
+    }
+}
+
+async function checkInstanceUnread(inst: Instance): Promise<void> {
+    const api = inst.env?.API_ENDPOINT;
+    const token = savedToken(inst);
+    const entry = readUnread()[inst.id];
+    const native = nativeApi();
+    if (!api || !token || !entry?.me || !native) return;
+    const base = (api.startsWith("//") ? `https:${api}` : api) + "/v9";
+    const list = await native.fetchJson(`${base}/users/@me/channels`, token);
+    if (!list.ok || !Array.isArray(list.data)) return;
+    const fallback = snowflakeAt(entry.t);
+    let total = 0;
+    for (const ch of list.data.slice(0, 60)) {
+        const last: string | undefined = ch?.last_message_id;
+        if (!ch?.id || !last) continue;
+        const from = entry.seen?.[ch.id] ?? fallback;
+        if (snowflakeCompare(last, from) <= 0) continue;
+        const msgs = await native.fetchJson(`${base}/channels/${ch.id}/messages?after=${from}&limit=100`, token);
+        if (!msgs.ok || !Array.isArray(msgs.data)) continue;
+        total += msgs.data.filter((m: any) => m?.author?.id && m.author.id !== entry.me).length;
+    }
+    const all = readUnread();
+    if (!all[inst.id] || all[inst.id].n === total) return;
+    all[inst.id] = { ...all[inst.id], n: total };
+    LS?.setItem(UNREAD_KEY, JSON.stringify(all));
+    window.dispatchEvent(new CustomEvent("instanceswitcher:unread"));
+}
+
+let unreadPoll: number | undefined;
+let unreadBusy = false;
+
+async function checkOtherInstances() {
+    if (unreadBusy) return;
+    unreadBusy = true;
+    try {
+        for (const inst of state.instances) {
+            if (inst.id === state.activeId || !inst.env) continue;
+            try {
+                await checkInstanceUnread(inst);
+            } catch (e) {
+                console.warn("[InstanceSwitcher] unread check failed for", inst.name, e);
+            }
+        }
+    } finally {
+        unreadBusy = false;
+    }
+}
+
+function startUnreadPoll() {
+    if (unreadPoll) return;
+    window.setTimeout(checkOtherInstances, 5000);
+    unreadPoll = window.setInterval(checkOtherInstances, 60000);
+}
+
+function stopUnreadPoll() {
+    if (unreadPoll) window.clearInterval(unreadPoll);
+    unreadPoll = undefined;
 }
 
 function setGatewayState(next: typeof gatewayState) {
@@ -2321,6 +2412,7 @@ export default definePlugin({
             startE2ee();
             startBannerHider();
             refreshUnread();
+            startUnreadPoll();
         });
 
         if (active().env) setTimeout(dumpEnv, 4000);
@@ -2353,6 +2445,7 @@ export default definePlugin({
         stopBannerHider();
         if (unreadTimer) window.clearTimeout(unreadTimer);
         unreadTimer = undefined;
+        stopUnreadPoll();
         unprefixNotifications();
         disableCredentials();
         if (profileBadgeAdded) {

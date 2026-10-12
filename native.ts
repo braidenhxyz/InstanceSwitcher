@@ -40,6 +40,26 @@ export async function fetchScript(_: IpcMainInvokeEvent, url: string) {
     }
 }
 
+export async function fetchJson(_: IpcMainInvokeEvent, url: string, token: string) {
+    try {
+        const u = new URL(url);
+        if (u.protocol !== "https:") return { ok: false, error: "only https addresses are allowed" };
+        if (typeof token !== "string" || !token || token.length > 4096) return { ok: false, error: "no token" };
+        const res = await fetch(u.href, {
+            method: "GET",
+            cache: "no-store",
+            redirect: "error",
+            headers: { Authorization: token, Accept: "application/json" }
+        });
+        if (!res.ok) return { ok: false, status: res.status, error: "server answered " + res.status };
+        const text = await res.text();
+        if (text.length > 2_000_000) return { ok: false, error: "response is too large" };
+        return { ok: true, data: JSON.parse(text) };
+    } catch (e) {
+        return { ok: false, error: String(e) };
+    }
+}
+
 export function allowGateways(_: IpcMainInvokeEvent, origins: string[]) {
     const added = apply(origins);
     if (added) {
