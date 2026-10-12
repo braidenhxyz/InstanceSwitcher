@@ -41,7 +41,7 @@ Connect your native Discord client to **Spacebar, FossCORD, MeowCORD**, and self
 - **Smart Endpoint Templating** — Enter a base domain (`https://my.server`) and the engine derives `/api`, `/gateway`, and CDN paths automatically.
 - **Context Badge** — A floating badge shows your active host so you never mistake a test server for live Discord. It turns green when the connection is healthy and red when it drops.
 - **Start on Launch** — Click the star on any instance (including Discord) to have the app open on it every time.
-- **Unread Counts** — The badge and each instance row show pending pings and DMs. The active instance is live; the others show the count from when you last used them, since only one connection is open at a time.
+- **Unread Counts** — The badge and each instance row show pending pings and DMs. The active instance is live; your other servers are checked about once a minute in the background with their saved login (DMs only). Real Discord shows the count from when you last used it.
 - **Panic Fail-Safe** — Press `Ctrl+Alt+Shift+D` anywhere to force-revert to official Discord if a server stalls.
 
 ### 🎭 Discord Native Parity
