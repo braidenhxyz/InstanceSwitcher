@@ -102,6 +102,36 @@ function commit(next: State) {
 
 const active = () => state.instances.find(i => i.id === state.activeId) ?? state.instances[0];
 
+const UNREAD_KEY = "InstanceSwitcher:unread";
+
+type UnreadMap = Record<string, { n: number; t: number }>;
+
+function readUnread(): UnreadMap {
+    try {
+        const v = JSON.parse(LS?.getItem(UNREAD_KEY) ?? "{}");
+        return v && typeof v === "object" ? v : {};
+    } catch {
+        return {};
+    }
+}
+
+function countUnread(): number {
+    try {
+        const store: any = ReadStateStore;
+        const ids = new Set<string>(store.getMentionChannelIds?.() ?? []);
+        for (const ch of (ChannelStore as any).getSortedPrivateChannels?.() ?? []) ids.add(ch.id);
+        let total = 0;
+        for (const id of ids) total += Number(store.getMentionCount?.(id) ?? 0) || 0;
+        return total;
+    } catch {
+        return 0;
+    }
+}
+
+function unreadLabel(n: number) {
+    return n > 99 ? "99+" : String(n);
+}
+
 function snapshot(ls: Storage): Store {
     const out: Store = {};
     for (let i = 0; i < ls.length; i++) {
@@ -755,6 +785,30 @@ function Switcher({ onClose }: { onClose: () => void; }) {
                                             Connected
                                         </span>
                                     )}
+                                    {(() => {
+                                        const n = readUnread()[inst.id]?.n ?? 0;
+                                        if (n <= 0) return null;
+                                        return (
+                                            <span
+                                                title={
+                                                    isCur
+                                                        ? `${n} unread pings and DMs`
+                                                        : `${n} unread pings and DMs when you last used this instance`
+                                                }
+                                                style={{
+                                                    fontSize: 10,
+                                                    fontWeight: 700,
+                                                    padding: "2px 7px",
+                                                    borderRadius: 999,
+                                                    flexShrink: 0,
+                                                    background: C.red,
+                                                    color: "#fff"
+                                                }}
+                                            >
+                                                {unreadLabel(n)}
+                                            </span>
+                                        );
+                                    })()}
                                     {inst.foss && (
                                         <span
                                             title="FossCORD/MeowCORD server: end-to-end encrypted DMs"
@@ -1395,6 +1449,31 @@ function startTextRewrite() {
 const BADGE_COLORS = { connecting: "var(--brand-500, #5865f2)", up: "#23a55a", down: "#f23f43" };
 const BADGE_TITLES = { connecting: "Connecting", up: "Connected", down: "Disconnected" };
 
+function paintBadge() {
+    if (!badge) return;
+    const n = readUnread()[state.activeId]?.n ?? 0;
+    badge.textContent = n > 0 ? `${active().name} · ${unreadLabel(n)}` : active().name;
+}
+
+let unreadTimer: number | undefined;
+
+function refreshUnread() {
+    if (unreadTimer) return;
+    unreadTimer = window.setTimeout(() => {
+        unreadTimer = undefined;
+        try {
+            const all = readUnread();
+            const n = countUnread();
+            if (all[state.activeId]?.n === n) return;
+            all[state.activeId] = { n, t: Date.now() };
+            LS?.setItem(UNREAD_KEY, JSON.stringify(all));
+            paintBadge();
+        } catch {
+            return;
+        }
+    }, 400);
+}
+
 function setGatewayState(next: typeof gatewayState) {
     gatewayState = next;
     if (!badge) return;
@@ -1407,7 +1486,6 @@ function mountBadge() {
     if (!inst.env || !settings.store.showBadge || badge || !document.body) return;
 
     badge = document.createElement("div");
-    badge.textContent = inst.name;
     badge.setAttribute("data-instance-switcher-ui", "1");
     badge.title = "Instance switcher (Ctrl+Alt+I)";
     Object.assign(badge.style, {
@@ -1427,7 +1505,9 @@ function mountBadge() {
     });
     badge.addEventListener("click", () => openSwitcher());
     document.body.appendChild(badge);
+    paintBadge();
     setGatewayState(gatewayState);
+    refreshUnread();
 }
 
 const VERIFIED_LABELS = new Set(["OFFICIAL", "AI"]);
@@ -2173,9 +2253,12 @@ export default definePlugin({
     },
 
     flux: {
+        MESSAGE_ACK: () => refreshUnread(),
+        CHANNEL_ACK: () => refreshUnread(),
         CONNECTION_OPEN: (e: any) => {
             trace("CONNECTION_OPEN", e);
             setGatewayState("up");
+            refreshUnread();
             spoofUser();
         },
         CURRENT_USER_UPDATE: () => spoofUser(),
@@ -2198,6 +2281,7 @@ export default definePlugin({
         MESSAGE_CREATE: (e: any) => {
             trace("MESSAGE_CREATE", e);
             maybePing(e);
+            refreshUnread();
             handleAttachments(e?.message ? [e.message] : []);
         },
         TYPING_START: (e: any) => trace("TYPING_START", e),
@@ -2236,6 +2320,7 @@ export default definePlugin({
             mountBadge();
             startE2ee();
             startBannerHider();
+            refreshUnread();
         });
 
         if (active().env) setTimeout(dumpEnv, 4000);
@@ -2266,6 +2351,8 @@ export default definePlugin({
         stopPolling();
         stopE2ee();
         stopBannerHider();
+        if (unreadTimer) window.clearTimeout(unreadTimer);
+        unreadTimer = undefined;
         unprefixNotifications();
         disableCredentials();
         if (profileBadgeAdded) {
